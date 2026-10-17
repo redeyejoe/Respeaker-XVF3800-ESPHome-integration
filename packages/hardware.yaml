@@ -1,5 +1,5 @@
 # =============================================================================
-# Respeaker XVF3800 satellite — hardware package
+# Respeaker XVF3800 satellite — hardware package (reSpeaker Flex version)
 #
 # Board-fixed configuration: I2S buses and pins, microphone, speaker chain,
 # the XMOS XVF3800 DSP, and the TLV320AIC3104 codec.
@@ -89,32 +89,6 @@ sendspin:
 respeaker_xvf3800:
   id: respeaker
   address: 0x2C
-  mute_switch:
-    id: mic_mute_switch
-    name: "Microphone Mute"
-    update_interval: 1s
-    on_turn_on:
-      - if:
-          condition:
-            and:
-              - lambda: return !id(init_in_progress);
-              - switch.is_on: mute_sound
-          then:
-            - script.execute:
-                id: play_sound
-                priority: false
-                sound_file: "mute_switch_on_sound"
-    on_turn_off:
-      - if:
-          condition:
-            and:
-              - lambda: return !id(init_in_progress);
-              - switch.is_on: mute_sound
-          then:
-            - script.execute:
-                id: play_sound
-                priority: false
-                sound_file: "mute_switch_off_sound"
   dfu_version:
     name: "Firmware Version"
     update_interval: 120s
@@ -127,10 +101,9 @@ respeaker_xvf3800:
     # This poll is also the azimuth source for beam lock. Set update_interval to
     # never, and the Beam lock switch stops working.
     update_interval: 100ms
-  firmware:
-    url: https://github.com/formatBCE/Respeaker-XVF3800-ESPHome-integration/raw/${respeaker_ref}/application_xvf3800_inthost-lr48-sqr-i2c-v1.0.7-release.bin
-    version: "1.0.7"
-    md5: 043a848f544ff2c7265ac19685daf5de
+  # reSpeaker Flex: no "firmware:" block on purpose. The stock config carries the
+  # square-array firmware for the round XVF3800 board and flashes it on boot.
+  # The Flex keeps the circular-array I2S firmware flashed with dfu-util.
 
 audio_dac:
   - platform: aic3104
@@ -184,3 +157,52 @@ select:
       - "Comms to STT, ASR to wake word"
     on_value:
       - lambda: id(respeaker).set_asr_route(i == 0);
+
+switch:
+  # reSpeaker Flex: software microphone mute. The stock "Microphone Mute" drives
+  # XMOS pin X0D30, which on the Flex is the speaker amplifier's SD/FAULT line.
+  # When on, wake words are ignored (voice-assistant.yaml checks this switch).
+  - platform: template
+    id: mic_mute_switch
+    name: "Microphone Mute"
+    icon: "mdi:microphone-off"
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - if:
+          condition:
+            and:
+              - lambda: return !id(init_in_progress);
+              - switch.is_on: mute_sound
+          then:
+            - script.execute:
+                id: play_sound
+                priority: false
+                sound_file: "mute_switch_on_sound"
+    on_turn_off:
+      - if:
+          condition:
+            and:
+              - lambda: return !id(init_in_progress);
+              - switch.is_on: mute_sound
+          then:
+            - script.execute:
+                id: play_sound
+                priority: false
+                sound_file: "mute_switch_off_sound"
+
+sensor:
+  # reSpeaker Flex: direction of the last voice, in degrees (15-degree steps),
+  # for Home Assistant and for turning the robot toward the speaker.
+  - platform: template
+    id: voice_direction_deg
+    name: "Voice Direction"
+    unit_of_measurement: "°"
+    icon: "mdi:compass-outline"
+    accuracy_decimals: 0
+    update_interval: 250ms
+    lambda: |-
+      if (!id(beam_direction).has_state() || id(beam_direction).state < 0) return {};
+      return id(beam_direction).state * 15.0f;
+    filters:
+      - delta: 1.0

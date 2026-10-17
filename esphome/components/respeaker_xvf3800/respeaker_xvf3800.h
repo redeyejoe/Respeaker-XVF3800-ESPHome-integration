@@ -244,6 +244,8 @@ class RespeakerXVF3800 : public i2c::I2CDevice, public Component {
   
   // Individual LED ring control (12 LEDs)
   void set_led_ring(uint32_t *rgb_array);
+  // reSpeaker Flex: the ring is an ESPHome WS2812 light that reads this frame.
+  const uint32_t *led_frame() const { return this->last_led_frame_; }
   
   std::string read_dfu_version();
   
@@ -325,7 +327,7 @@ class RespeakerXVF3800 : public i2c::I2CDevice, public Component {
   uint32_t last_azimuth_ms_{0};
 
   // Last frame written by set_led_ring(), so an unchanged frame skips the bus.
-  uint32_t last_led_frame_[12]{};
+  uint32_t last_led_frame_[24]{};  // reSpeaker Flex: frame for the external 24-LED ring
   bool led_frame_valid_{false};
 
   // The chip resets these on power-up; they are (re)applied after boot.

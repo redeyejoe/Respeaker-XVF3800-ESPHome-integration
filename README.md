@@ -1,3 +1,17 @@
+> **This fork: reSpeaker Flex XVF3800 (circular) for "The Gimp" robot head.**
+> Based on formatBCE's integration, changed for the Flex board:
+> - **XMOS firmware is never flashed by ESPHome.** Flash the Flex circular-array
+>   I2S firmware (`respeaker_flex_i2s_c48k2ch_v1.0.4.bin`) once with `dfu-util`.
+>   The round board's square-array firmware has been removed from this repo.
+> - **Software mic mute.** On the Flex, XMOS pin X0D30 is the amplifier's
+>   SD/FAULT line, so "Microphone Mute" is a template switch that ignores wake words.
+> - **External 24-LED WS2812 ring on D0 (GPIO1)** shows all the ring effects,
+>   including voice direction at 15° per LED. Align it with `ring_led_offset`
+>   and `ring_reverse`.
+> - **16 → 12 → 7 rings chained on D2 (GPIO3)**, three lights in Home Assistant.
+> - **"Voice Direction" sensor** in degrees.
+> - Use `config/gimp-voice.yaml`. D3 (GPIO4) is left free for a UART link to the Teensy.
+
 # reSpeaker XVF3800 — ESPHome voice satellite
 
 ESPHome components and configuration packages that make a

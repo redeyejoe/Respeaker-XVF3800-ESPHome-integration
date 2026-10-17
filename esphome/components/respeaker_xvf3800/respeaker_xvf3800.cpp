@@ -448,12 +448,12 @@ int RespeakerXVF3800::read_led_beam_direction() {
 
   float degrees = radians * 180.0f / M_PI;
 
-  // Map degrees to LED index (0-11). Each LED covers 30 degrees.
-  int led_index = (int)roundf(degrees / 30.0f);
+  // reSpeaker Flex: map degrees to LED index (0-23). Each LED covers 15 degrees.
+  int led_index = (int)roundf(degrees / 15.0f);
   if (led_index < 0) {
-    led_index += 12;
+    led_index += 24;
   }
-  led_index = led_index % 12;
+  led_index = led_index % 24;
 
   ESP_LOGD(TAG, "AEC azimuth: %.1f degrees -> LED %d", degrees, led_index);
 
@@ -516,25 +516,11 @@ void RespeakerXVF3800::xmos_write_bytes(uint8_t resid, uint8_t cmd, const uint8_
 }
 
 void RespeakerXVF3800::set_led_ring(uint32_t *rgb_array) {
-  // The YAML animation interval calls this 20 times a second whether the frame
-  // changed or not. Skip the bus when it did not.
-  if (this->led_frame_valid_ && memcmp(this->last_led_frame_, rgb_array, sizeof(this->last_led_frame_)) == 0) {
-    return;
-  }
+  // reSpeaker Flex: there is no LED ring on the XMOS side, so nothing goes over
+  // I2C. The frame (24 x 0xRRGGBB) is kept here and the "Mirror" effect of the
+  // ring24_strip light copies it to the WS2812 ring on the XIAO every tick.
   memcpy(this->last_led_frame_, rgb_array, sizeof(this->last_led_frame_));
   this->led_frame_valid_ = true;
-
-  uint8_t payload[48];
-  
-  for (int i = 0; i < 12; i++) {
-    uint32_t color = rgb_array[i];
-    payload[i * 4 + 0] = (uint8_t)(color & 0xFF);
-    payload[i * 4 + 1] = (uint8_t)((color >> 8) & 0xFF);
-    payload[i * 4 + 2] = (uint8_t)((color >> 16) & 0xFF);
-    payload[i * 4 + 3] = 0x00;
-  }
-  
-  this->xmos_write_bytes(GPO_SERVICER_RESID, GPO_SERVICER_RESID_LED_RING_VALUE, payload, 48);
 }
 
 std::string RespeakerXVF3800::read_dfu_version() {

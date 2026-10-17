@@ -1,0 +1,71 @@
+# =============================================================================
+# reSpeaker Flex satellite: LED ring package
+#
+# The Flex has no LED ring of its own. Its effects in leds.yaml draw a 24-entry
+# frame; the ring24_strip light below shows that frame on a WS2812 ring wired
+# to the XIAO. Three more rings hang off a second pin as plain HA lights.
+#
+#   D0 / GPIO1 : 24-LED ring (listening, thinking, speaking, voice direction)
+#   D2 / GPIO3 : 16 -> 12 -> 7 rings, daisy-chained (35 LEDs)
+#
+# Power the rings from their own 5 V supply and tie its ground to the board.
+# Line the 24-LED ring up with the mics using ring_led_offset / ring_reverse
+# (substitutions in base.yaml).
+# =============================================================================
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: ring24_strip
+    name: "Ring 24 (raw)"
+    internal: true
+    pin: GPIO1
+    num_leds: 24
+    chipset: WS2812
+    rgb_order: GRB
+    default_transition_length: 0s
+    restore_mode: ALWAYS_ON
+    effects:
+      - addressable_lambda:
+          name: "Mirror"
+          update_interval: 16ms
+          lambda: |-
+            const uint32_t *frame = id(respeaker).led_frame();
+            const int N = it.size();
+            for (int i = 0; i < N; i++) {
+              int src = ${ring_reverse} ? (N - i) % N : i;
+              src = ((src - (${ring_led_offset})) % N + N) % N;
+              uint32_t c = frame[src];
+              it[i] = Color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+            }
+
+  - platform: esp32_rmt_led_strip
+    id: upper_rings
+    name: "Upper rings (raw)"
+    internal: true
+    pin: GPIO3
+    num_leds: 35
+    chipset: WS2812
+    rgb_order: GRB
+    default_transition_length: 0s
+
+  - platform: partition
+    name: "Ring 16"
+    id: ring16
+    segments:
+      - id: upper_rings
+        from: 0
+        to: 15
+  - platform: partition
+    name: "Ring 12"
+    id: ring12
+    segments:
+      - id: upper_rings
+        from: 16
+        to: 27
+  - platform: partition
+    name: "Ring 7"
+    id: ring7
+    segments:
+      - id: upper_rings
+        from: 28
+        to: 34

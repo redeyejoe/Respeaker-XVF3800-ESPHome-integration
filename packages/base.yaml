@@ -19,6 +19,15 @@ substitutions:
   respeaker_ref: main
   # Ref of the patched i2s_audio fork. The stock component does not work.
   i2s_audio_ref: respeaker_microphone
+  # reSpeaker Flex fork: where the respeaker_xvf3800 / aic3104 components come from.
+  respeaker_repo: https://github.com/redeyejoe/Respeaker-XVF3800-ESPHome-integration
+
+  # --- reSpeaker Flex LED ring alignment -----------------------------------
+  # Turn the 24-LED ring (in LEDs, 15 degrees each) so the lit LED points at
+  # the voice. Say the wake word from straight in front and adjust.
+  ring_led_offset: "0"
+  # Set to "true" if the light moves the wrong way round as you walk around it.
+  ring_reverse: "false"
 
   # --- Tuning --------------------------------------------------------------
   # Set this to "true" if your network does not broadcast its SSID.
@@ -45,10 +54,17 @@ esphome:
   name: ${name}
   friendly_name: ${friendly_name}
   project:
-    name: formatbce.Respeaker XVF3800 Satellite
+    name: redeyejoe.Respeaker Flex Gimp Satellite
     version: 2026.9.0
   min_version: 2026.9.0
   on_boot:
+    # reSpeaker Flex: keep the 24-LED ring showing the effect frame.
+    - priority: 600
+      then:
+        - light.turn_on:
+            id: ring24_strip
+            brightness: 100%
+            effect: "Mirror"
     - priority: 375
       then:
         - sensor.template.publish:
@@ -207,7 +223,7 @@ external_components:
     refresh: 0s
   - source:
       type: git
-      url: https://github.com/formatBCE/Respeaker-XVF3800-ESPHome-integration
+      url: ${respeaker_repo}
       ref: ${respeaker_ref}
     components:
       - respeaker_xvf3800

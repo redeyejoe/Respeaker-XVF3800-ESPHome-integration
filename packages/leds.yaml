@@ -1,8 +1,8 @@
 # =============================================================================
 # Respeaker XVF3800 satellite — LED ring package
 #
-# The 12-LED ring has no ESPHome light component. The driver writes the ring as
-# one 12-entry array over I2C. All animation lives here, in YAML.
+# reSpeaker Flex: the effects below render a 24-entry frame. The driver keeps it
+# and the ring24_strip light (end of this file) shows it on the WS2812 ring.
 #
 # A 50 ms interval reads the "current_led_effect" global and calls one
 # "update_*_effect" script. The "control_leds" script decides which effect the
@@ -141,7 +141,7 @@ script:
 
           // Handle the two types of effects: Off and Animated
           if (effect == "off") {
-            uint32_t colors[12] = {0};
+            uint32_t colors[24] = {0};
             id(respeaker).set_led_ring(colors);
           } else {
             id(last_led_update_time) = millis(); // Reset timer for smooth animation start
@@ -160,8 +160,8 @@ script:
           uint8_t b = (uint8_t)(id(effect_color_b) * brightness);
           uint32_t current_color = (r << 16) | (g << 8) | b;
 
-          uint32_t colors[12];
-          for (int i = 0; i < 12; i++) colors[i] = current_color;
+          uint32_t colors[24];
+          for (int i = 0; i < 24; i++) colors[i] = current_color;
           id(respeaker).set_led_ring(colors);
 
   # Individual update scripts for each animated effect
@@ -184,8 +184,8 @@ script:
           uint8_t b = (uint8_t)(id(effect_color_b) * breath_brightness);
           uint32_t current_color = (r << 16) | (g << 8) | b;
 
-          uint32_t colors[12];
-          for (int i = 0; i < 12; i++) colors[i] = current_color;
+          uint32_t colors[24];
+          for (int i = 0; i < 24; i++) colors[i] = current_color;
           id(respeaker).set_led_ring(colors);
 
   - id: update_rainbow_effect
@@ -199,7 +199,7 @@ script:
           hue_offset += dt * id(effect_speed);
           if (hue_offset >= 1.0f) hue_offset -= 1.0f;
 
-          constexpr int NUM_LEDS = 12;
+          constexpr int NUM_LEDS = 24;
           constexpr float HUE_STEP = 1.0f / NUM_LEDS;
           uint32_t colors[NUM_LEDS];
           float brightness = id(user_led_ring_brightness) * id(effect_brightness);
@@ -222,7 +222,7 @@ script:
           float dt = (now - id(last_led_update_time)) / 1000.0f;
           id(last_led_update_time) = now;
 
-          constexpr int NUM_LEDS = 12;
+          constexpr int NUM_LEDS = 24;
           constexpr int BASE_TAIL = 3;
 
           float leds_per_sec = id(effect_speed) * NUM_LEDS;
@@ -261,7 +261,7 @@ script:
           float dt = (now - id(last_led_update_time)) / 1000.0f;
           id(last_led_update_time) = now;
 
-          constexpr int NUM_LEDS = 12;
+          constexpr int NUM_LEDS = 24;
           constexpr int BASE_TAIL = 3;
 
           float leds_per_sec = id(effect_speed) * NUM_LEDS;
@@ -295,7 +295,7 @@ script:
   - id: update_twinkle_effect
     then:
       - lambda: |-
-          constexpr int NUM_LEDS = 12;
+          constexpr int NUM_LEDS = 24;
           static float led_brightness[NUM_LEDS] = {0.0f};
           static float led_fade_speed[NUM_LEDS] = {0.0f};
 
@@ -344,7 +344,7 @@ script:
   - id: update_timer_tick_effect
     then:
       - lambda: |-
-          constexpr int NUM_LEDS = 12;
+          constexpr int NUM_LEDS = 24;
           static int tick_index = 0;
 
           uint32_t now = millis();
@@ -379,7 +379,7 @@ script:
   - id: update_volume_display_effect
     then:
       - lambda: |-
-          constexpr int NUM_LEDS = 12;
+          constexpr int NUM_LEDS = 24;
           uint32_t colors[NUM_LEDS] = {0};
 
           if (id(external_media_player).is_ready()) {
@@ -410,7 +410,7 @@ script:
   - id: update_led_beam_effect
     then:
       - lambda: |-
-          constexpr int NUM_LEDS = 12;
+          constexpr int NUM_LEDS = 24;
           constexpr int FADE_LEDS = 3;
           constexpr float TRANSITION_DURATION = 0.5f; // Duration of the smooth transition
           uint32_t colors[NUM_LEDS] = {0};
@@ -420,8 +420,9 @@ script:
           id(last_led_update_time) = now;
 
           if (id(beam_direction).has_state()) {
-            // CORRECTING THE OFFSET: add 5 from the sensor reading
-            float target_pos = ((int)id(beam_direction).state + 5) % NUM_LEDS;
+            // reSpeaker Flex: no fixed offset here. ring_led_offset / ring_reverse
+            // (base.yaml substitutions) line the whole ring up in the Mirror effect.
+            float target_pos = ((int)id(beam_direction).state) % NUM_LEDS;
             float current_pos = id(animated_beam_position);
 
             // Calculate the shortest path around the circle
@@ -706,7 +707,7 @@ script:
       - lambda: |-
           id(volume_display_active) = false;
           // Turn off LEDs - any active effect will take over on next interval tick
-          uint32_t colors[12] = {0};
+          uint32_t colors[24] = {0};
           id(respeaker).set_led_ring(colors);
 
   # Script executed when the timer is ringing, to control the LEDs

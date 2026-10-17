@@ -1,0 +1,44 @@
+# =============================================================================
+# The Gimp: reSpeaker Flex XVF3800 (circular) + XIAO ESP32-S3 voice satellite
+#
+# Paste this into a new device in ESPHome Builder. Your Wi-Fi, API and OTA
+# secrets come from ESPHome Builder's own secrets.yaml.
+#
+# Before the first install, the Flex must already have the circular-array I2S
+# firmware (respeaker_flex_i2s_c48k2ch_v1.0.4.bin) flashed with dfu-util.
+# This config never touches the XMOS firmware.
+# =============================================================================
+
+substitutions:
+  name: gimp-voice
+  friendly_name: Gimp Voice
+  respeaker_ref: main
+  # 24-LED ring alignment (see packages/base.yaml)
+  ring_led_offset: "0"
+  ring_reverse: "false"
+
+packages:
+  respeaker:
+    url: https://github.com/redeyejoe/Respeaker-XVF3800-ESPHome-integration
+    ref: ${respeaker_ref}
+    refresh: 1d
+    files:
+      - packages/base.yaml
+      - packages/hardware.yaml
+      - packages/voice-assistant.yaml
+      - packages/leds.yaml
+      - packages/flex-rings.yaml
+      - packages/timers-alarm.yaml
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    id: ota_esphome
+    password: !secret ota_password
