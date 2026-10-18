@@ -17,7 +17,8 @@
 > DevKitC. The `wm8960` component configures the codec as I2S master from the
 > HAT's 12.288 MHz oscillator (16 kHz, 32-bit, I2S), with gains taken from
 > Seeed's `wm8960_asound.state`. Wiring and everything else are in
-> `config/respeaker-2mic-esp32s3.yaml`.
+> `config/respeaker-2mic-xiao.yaml` (Seeed XIAO ESP32S3, recommended) or
+> `config/respeaker-2mic-esp32s3.yaml` (ESP32-S3 DevKitC).
 
 # reSpeaker XVF3800 — ESPHome voice satellite
 
