@@ -11,6 +11,13 @@
 > - **16 → 12 → 7 rings chained on D2 (GPIO3)**, three lights in Home Assistant.
 > - **"Voice Direction" sensor** in degrees.
 > - Use `config/gimp-voice.yaml`. D3 (GPIO4) is left free for a UART link to the Teensy.
+>
+> **Also in this fork: a stand-alone voice box from a ReSpeaker 2-Mic Pi HAT v1**
+> (Seeed v1 or the Keyestudio KS0314 clone, WM8960 codec) wired to an ESP32-S3
+> DevKitC. The `wm8960` component configures the codec as I2S master from the
+> HAT's 12.288 MHz oscillator (16 kHz, 32-bit, I2S), with gains taken from
+> Seeed's `wm8960_asound.state`. Wiring and everything else are in
+> `config/respeaker-2mic-esp32s3.yaml`.
 
 # reSpeaker XVF3800 — ESPHome voice satellite
 

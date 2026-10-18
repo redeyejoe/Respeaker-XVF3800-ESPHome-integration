@@ -1,0 +1,505 @@
+# =============================================================================
+# ReSpeaker 2-Mic Pi HAT v1 (Keyestudio KS0314 / Seeed v1, WM8960 codec)
+# on an ESP32-S3 DevKitC as a stand-alone Home Assistant voice satellite.
+#
+# Paste into a new device in ESPHome Builder. Wi-Fi, API and OTA secrets come
+# from ESPHome Builder's own secrets.yaml.
+#
+# Wiring (Pi header pin on the HAT -> ESP32-S3 DevKitC):
+#   12 I2S bit clock  -> GPIO4     (the HAT drives it)
+#   35 I2S word clock -> GPIO5     (the HAT drives it)
+#   38 mic data       -> GPIO6     (HAT -> ESP)
+#   40 speaker data   -> GPIO7     (ESP -> HAT)
+#    3 I2C SDA        -> GPIO8
+#    5 I2C SCL        -> GPIO9
+#   11 button         -> GPIO10
+#   19 LED data       -> GPIO11    (3x APA102)
+#   23 LED clock      -> GPIO12
+#    1 3.3 V          -> 3V3
+#    2 5 V            -> 5V        (power the HAT's micro-USB with a good 5 V
+#    6 GND            -> GND        supply; unplug it while flashing over USB)
+#
+# Needs an ESP32-S3 with PSRAM (DevKitC-1 N8R8 / N16R8). Set psram_mode to
+# quad for an N8R2 module.
+# =============================================================================
+
+substitutions:
+  name: voice-box
+  friendly_name: Voice Box
+  psram_mode: octal
+  flash_size: 16MB
+  respeaker_repo: https://github.com/redeyejoe/Respeaker-XVF3800-ESPHome-integration
+  respeaker_ref: main
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.9.0
+  name_add_mac_suffix: false
+  project:
+    name: redeyejoe.ReSpeaker 2-Mic ESP32-S3
+    version: "1.0"
+  on_boot:
+    priority: 375
+    then:
+      - light.turn_on:
+          id: hat_leds
+          brightness: 40%
+          red: 100%
+          green: 50%
+          blue: 0%
+          effect: Breathe
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: ${flash_size}
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+
+psram:
+  mode: ${psram_mode}
+  speed: 80MHz
+
+external_components:
+  - source:
+      type: git
+      url: ${respeaker_repo}
+      ref: ${respeaker_ref}
+    components: [wm8960]
+    refresh: 1d
+
+logger:
+  level: DEBUG
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Setup"
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_key
+
+ota:
+  - platform: esphome
+    id: ota_esphome
+    password: !secret ota_password
+
+# ---------------------------------------------------------------------------
+# Audio hardware
+# ---------------------------------------------------------------------------
+
+i2c:
+  - id: hat_i2c
+    sda: GPIO8
+    scl: GPIO9
+    frequency: 100kHz
+
+audio_dac:
+  - platform: wm8960
+    id: wm8960_dac
+    i2c_id: hat_i2c
+    # mic_boost: 29       # dB: 0, 13, 20 or 29
+    # mic_gain: 12        # dB: -17.25 .. 30
+    # speaker_volume: 0   # dB: -73 .. 6
+
+# The WM8960 is the clock master (its own 12.288 MHz oscillator), so both ESP
+# buses run as secondaries on the same two clock pins.
+i2s_audio:
+  - id: i2s_out_bus
+    i2s_lrclk_pin:
+      number: GPIO5
+      allow_other_uses: true
+    i2s_bclk_pin:
+      number: GPIO4
+      allow_other_uses: true
+  - id: i2s_in_bus
+    i2s_lrclk_pin:
+      number: GPIO5
+      allow_other_uses: true
+    i2s_bclk_pin:
+      number: GPIO4
+      allow_other_uses: true
+
+microphone:
+  - platform: i2s_audio
+    id: hat_mic
+    i2s_audio_id: i2s_in_bus
+    i2s_din_pin: GPIO6
+    adc_type: external
+    pdm: false
+    i2s_mode: secondary
+    sample_rate: 16000
+    bits_per_sample: 32bit
+    channel: left
+
+speaker:
+  - platform: i2s_audio
+    id: hat_speaker
+    i2s_audio_id: i2s_out_bus
+    i2s_dout_pin: GPIO7
+    dac_type: external
+    i2s_mode: secondary
+    sample_rate: 16000
+    bits_per_sample: 32bit
+    channel: stereo
+    timeout: never
+    buffer_duration: 100ms
+    audio_dac: wm8960_dac
+
+  - platform: mixer
+    id: mixing_speaker
+    output_speaker: hat_speaker
+    num_channels: 2
+    task_stack_in_psram: true
+    source_speakers:
+      - id: announcement_mixing_input
+        timeout: never
+      - id: media_mixing_input
+        timeout: never
+
+  - platform: resampler
+    id: announcement_resampling_speaker
+    output_speaker: announcement_mixing_input
+    sample_rate: 16000
+    bits_per_sample: 16
+  - platform: resampler
+    id: media_resampling_speaker
+    output_speaker: media_mixing_input
+    sample_rate: 16000
+    bits_per_sample: 16
+
+# ---------------------------------------------------------------------------
+# Media player (announcements + music), same layout as Voice PE
+# ---------------------------------------------------------------------------
+
+audio_file:
+  - id: wake_sound_file
+    file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/wake_word_triggered.flac
+  - id: mute_on_sound_file
+    file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/mute_switch_on.flac
+  - id: mute_off_sound_file
+    file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/mute_switch_off.flac
+  - id: timer_sound_file
+    file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/timer_finished.flac
+
+media_source:
+  - platform: audio_file
+    id: audio_file_source
+  - platform: audio_http
+    id: http_announcement_source
+    buffer_size: 250000
+  - platform: audio_http
+    id: http_media_source
+    buffer_size: 500000
+
+media_player:
+  - platform: speaker_source
+    id: box_player
+    name: Media Player
+    announcement_pipeline:
+      format: FLAC
+      num_channels: 1
+      sample_rate: 16000
+      speaker: announcement_resampling_speaker
+      sources:
+        - audio_file_source
+        - http_announcement_source
+    media_pipeline:
+      format: FLAC
+      num_channels: 2
+      sample_rate: 16000
+      speaker: media_resampling_speaker
+      sources:
+        - http_media_source
+    volume_increment: 0.05
+    volume_min: 0.0
+    volume_max: 1.0
+    on_announcement:
+      - mixer_speaker.apply_ducking:
+          id: media_mixing_input
+          decibel_reduction: 20
+          duration: 0.0s
+    on_state:
+      if:
+        condition:
+          and:
+            - not:
+                voice_assistant.is_running:
+            - not:
+                media_player.is_announcing: box_player
+        then:
+          - mixer_speaker.apply_ducking:
+              id: media_mixing_input
+              decibel_reduction: 0
+              duration: 1.0s
+
+# ---------------------------------------------------------------------------
+# Wake word + voice assistant
+# ---------------------------------------------------------------------------
+
+micro_wake_word:
+  id: mww
+  microphone:
+    microphone: hat_mic
+    channels: 0
+    gain_factor: 2
+  stop_after_detection: false
+  models:
+    - model: https://github.com/OHF-Voice/micro-wake-word/releases/download/okay_nabu_20241226.3/okay_nabu.json
+      id: okay_nabu
+    - model: hey_jarvis
+      id: hey_jarvis
+    - model: https://github.com/OHF-Voice/micro-wake-word/releases/download/stop/stop.json
+      id: stop
+      internal: true
+  vad:
+    probability_cutoff: 0.05
+  on_wake_word_detected:
+    - if:
+        condition:
+          voice_assistant.is_running:
+        then:
+          - voice_assistant.stop:
+        else:
+          - if:
+              condition:
+                media_player.is_announcing: box_player
+              then:
+                - media_player.stop:
+                    id: box_player
+                    announcement: true
+              else:
+                - if:
+                    condition:
+                      switch.is_on: wake_sound
+                    then:
+                      - script.execute:
+                          id: play_sound
+                          sound_file: "wake_sound_file"
+                      - delay: 300ms
+                - voice_assistant.start:
+                    wake_word: !lambda return wake_word;
+
+voice_assistant:
+  id: va
+  microphone:
+    microphone: hat_mic
+    channels: 0
+    gain_factor: 2
+  media_player: box_player
+  micro_wake_word: mww
+  use_wake_word: false
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 1.0
+  on_client_connected:
+    - if:
+        condition:
+          switch.is_off: mic_mute
+        then:
+          - micro_wake_word.start:
+    - script.execute:
+        id: set_leds
+        phase: idle
+  on_client_disconnected:
+    - voice_assistant.stop:
+    - micro_wake_word.stop:
+    - script.execute:
+        id: set_leds
+        phase: offline
+  on_start:
+    - mixer_speaker.apply_ducking:
+        id: media_mixing_input
+        decibel_reduction: 20
+        duration: 0.0s
+  on_listening:
+    - script.execute:
+        id: set_leds
+        phase: listening
+  on_stt_vad_end:
+    - script.execute:
+        id: set_leds
+        phase: thinking
+  on_tts_start:
+    - script.execute:
+        id: set_leds
+        phase: replying
+    - micro_wake_word.enable_model: stop
+  on_error:
+    - if:
+        condition:
+          lambda: return code != "duplicate_wake_up_detected" && code != "stt-no-text-recognized";
+        then:
+          - script.execute:
+              id: set_leds
+              phase: error
+          - delay: 1s
+  on_end:
+    - micro_wake_word.disable_model: stop
+    - wait_until:
+        not:
+          voice_assistant.is_running:
+    - mixer_speaker.apply_ducking:
+        id: media_mixing_input
+        decibel_reduction: 0
+        duration: 1.0s
+    - script.execute:
+        id: set_leds
+        phase: !lambda 'return id(mic_mute).state ? std::string("muted") : std::string("idle");'
+  on_timer_finished:
+    - repeat:
+        count: 3
+        then:
+          - script.execute:
+              id: play_sound
+              sound_file: "timer_sound_file"
+          - delay: 2s
+
+# ---------------------------------------------------------------------------
+# Controls: mute switch, wake sound switch, HAT button
+# ---------------------------------------------------------------------------
+
+switch:
+  - platform: template
+    id: mic_mute
+    name: Mute microphone
+    icon: mdi:microphone-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - micro_wake_word.stop:
+      - voice_assistant.stop:
+      - script.execute:
+          id: play_sound
+          sound_file: "mute_on_sound_file"
+      - script.execute:
+          id: set_leds
+          phase: muted
+    on_turn_off:
+      - if:
+          condition:
+            api.connected:
+          then:
+            - micro_wake_word.start:
+      - script.execute:
+          id: play_sound
+          sound_file: "mute_off_sound_file"
+      - script.execute:
+          id: set_leds
+          phase: idle
+  - platform: template
+    id: wake_sound
+    name: Wake sound
+    icon: mdi:bullhorn
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+binary_sensor:
+  - platform: gpio
+    id: hat_button
+    name: Button
+    pin:
+      number: GPIO10
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+    on_multi_click:
+      # Short press: talk without the wake word (or stop a running conversation)
+      - timing:
+          - ON for at most 0.8s
+          - OFF for at least 0.3s
+        then:
+          - if:
+              condition:
+                voice_assistant.is_running:
+              then:
+                - voice_assistant.stop:
+              else:
+                - if:
+                    condition:
+                      switch.is_off: mic_mute
+                    then:
+                      - voice_assistant.start:
+      # Long press: mute / unmute the microphone
+      - timing:
+          - ON for at least 1.5s
+        then:
+          - switch.toggle: mic_mute
+
+# ---------------------------------------------------------------------------
+# The three APA102 LEDs on the HAT
+#   amber breathing = starting / not connected, dim blue = ready,
+#   blue = listening, cyan pulse = thinking, green = replying,
+#   red = error, dim red = muted
+# ---------------------------------------------------------------------------
+
+spi:
+  - id: led_spi
+    clk_pin: GPIO12
+    mosi_pin: GPIO11
+
+light:
+  - platform: spi_led_strip
+    id: hat_leds
+    name: LEDs
+    spi_id: led_spi
+    num_leds: 3
+    data_rate: 1MHz
+    default_transition_length: 150ms
+    effects:
+      - pulse:
+          name: Breathe
+          transition_length: 1s
+          update_interval: 1s
+          min_brightness: 10%
+          max_brightness: 60%
+      - pulse:
+          name: Fast pulse
+          transition_length: 250ms
+          update_interval: 250ms
+          min_brightness: 20%
+          max_brightness: 80%
+
+script:
+  # Plays one of the audio_file sounds above as an announcement
+  - id: play_sound
+    parameters:
+      sound_file: string
+    then:
+      - lambda: |-
+          id(box_player)->make_call()
+            .set_media_url("audio-file://" + sound_file)
+            .set_announcement(true)
+            .perform();
+
+  - id: set_leds
+    mode: restart
+    parameters:
+      phase: string
+    then:
+      - lambda: |-
+          auto call = id(hat_leds).turn_on();
+          call.set_effect("None");
+          call.set_color_mode(ColorMode::RGB);
+          if (phase == "idle")           { call.set_rgb(0.0, 0.2, 1.0); call.set_brightness(0.08); }
+          else if (phase == "listening") { call.set_rgb(0.0, 0.3, 1.0); call.set_brightness(0.7); }
+          else if (phase == "thinking")  { call.set_rgb(0.0, 0.9, 1.0); call.set_brightness(0.6); call.set_effect("Fast pulse"); }
+          else if (phase == "replying")  { call.set_rgb(0.1, 1.0, 0.2); call.set_brightness(0.6); }
+          else if (phase == "error")     { call.set_rgb(1.0, 0.0, 0.0); call.set_brightness(0.8); }
+          else if (phase == "muted")     { call.set_rgb(1.0, 0.0, 0.0); call.set_brightness(0.08); }
+          else                           { call.set_rgb(1.0, 0.5, 0.0); call.set_brightness(0.4); call.set_effect("Breathe"); }
+          call.perform();
