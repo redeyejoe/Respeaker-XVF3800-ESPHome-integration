@@ -19,7 +19,12 @@
 #    2 5 V            -> 5V             power the HAT's micro-USB with a good
 #    6 GND            -> GND            5 V supply; unplug it while flashing
 #   Doorbell button (optional, to GND) -> D10 (GPIO9)
-#   D2 (GPIO3) is left free.
+#
+# Adafruit NeoPixel Ring 12 (WS2812):
+#   DIN -> D2 (GPIO3) through a 330-470 ohm resistor
+#   5V  -> 5 V (same 5 V supply as the HAT, not the XIAO's 3V3)
+#   GND -> GND
+#   Put a 470-1000 uF capacitor across the ring's 5V and GND.
 #
 # Use the u.FL antenna: route it to the outside of the case.
 # =============================================================================
@@ -27,7 +32,7 @@
 substitutions:
   name: voice-box
   friendly_name: Voice Box
-  flash_size: 8MB
+  flash_size: 8MB          # 16MB on a XIAO ESP32S3 Plus
   respeaker_repo: https://github.com/redeyejoe/Respeaker-XVF3800-ESPHome-integration
   respeaker_ref: main
 
@@ -42,13 +47,9 @@ esphome:
   on_boot:
     priority: 375
     then:
-      - light.turn_on:
-          id: hat_leds
-          brightness: 40%
-          red: 100%
-          green: 50%
-          blue: 0%
-          effect: Breathe
+      - script.execute:
+          id: set_leds
+          phase: offline
 
 esp32:
   board: seeed_xiao_esp32s3
@@ -87,12 +88,12 @@ captive_portal:
 
 api:
   encryption:
-    key: !secret api_key
+    key: !secret voice_box_api_key
 
 ota:
   - platform: esphome
     id: ota_esphome
-    password: !secret ota_password
+    password: !secret voice_box_ota_password
 
 # ---------------------------------------------------------------------------
 # Audio hardware
@@ -421,6 +422,19 @@ binary_sensor:
     filters:
       - delayed_on: 30ms
       - delayed_off: 100ms
+    on_press:
+      - light.turn_on:
+          id: ring_leds
+          effect: Flash
+      - delay: 2s
+      - if:
+          condition:
+            voice_assistant.is_running:
+          then: []   # the voice pipeline is already driving the LEDs
+          else:
+            - script.execute:
+                id: set_leds
+                phase: !lambda 'return id(mic_mute).state ? std::string("muted") : std::string("idle");'
 
   - platform: gpio
     id: hat_button
@@ -458,10 +472,10 @@ binary_sensor:
           - switch.toggle: mic_mute
 
 # ---------------------------------------------------------------------------
-# The three APA102 LEDs on the HAT
+# LEDs: the three APA102s on the HAT and the 12-LED NeoPixel ring
 #   amber breathing = starting / not connected, dim blue = ready,
-#   blue = listening, cyan pulse = thinking, green = replying,
-#   red = error, dim red = muted
+#   blue = listening, cyan spinning = thinking, green = replying,
+#   red = error, dim red = muted, orange flash = doorbell pressed
 # ---------------------------------------------------------------------------
 
 spi:
@@ -491,6 +505,56 @@ light:
           min_brightness: 20%
           max_brightness: 80%
 
+  - platform: esp32_rmt_led_strip
+    id: ring_leds
+    name: Ring
+    pin: GPIO3
+    chipset: WS2812
+    channel_colors: GRB
+    num_leds: 12
+    max_refresh_rate: 16ms
+    default_transition_length: 150ms
+    color_correct: [60%, 60%, 60%]   # caps current at ~430 mA on full white
+    effects:
+      - pulse:
+          name: Breathe
+          transition_length: 1s
+          update_interval: 1s
+          min_brightness: 10%
+          max_brightness: 60%
+      # A bright head with a fading tail chasing round the ring
+      - addressable_lambda:
+          name: Spin
+          update_interval: 60ms
+          lambda: |-
+            static uint8_t pos = 0;
+            const uint8_t n = it.size();
+            it.all() = Color::BLACK;
+            for (uint8_t t = 0; t < 4; t++) {
+              it[(pos + n - t) % n] = current_color * (uint8_t) (255 >> (t * 2));
+            }
+            pos = (pos + 1) % n;
+      # The whole ring rises and falls, like it's speaking
+      - addressable_lambda:
+          name: Talk
+          update_interval: 40ms
+          lambda: |-
+            static float phase = 0;
+            phase += 0.35f;
+            const float level = 0.45f + 0.55f * fabsf(sinf(phase) * sinf(phase * 0.37f));
+            it.all() = current_color * (uint8_t) (255 * level);
+      - strobe:
+          name: Flash
+          colors:
+            - state: true
+              brightness: 100%
+              red: 100%
+              green: 45%
+              blue: 0%
+              duration: 150ms
+            - state: false
+              duration: 150ms
+
 script:
   # Plays one of the audio_file sounds above as an announcement
   - id: play_sound
@@ -509,14 +573,17 @@ script:
       phase: string
     then:
       - lambda: |-
-          auto call = id(hat_leds).turn_on();
-          call.set_effect("None");
-          call.set_color_mode(ColorMode::RGB);
-          if (phase == "idle")           { call.set_rgb(0.0, 0.2, 1.0); call.set_brightness(0.08); }
-          else if (phase == "listening") { call.set_rgb(0.0, 0.3, 1.0); call.set_brightness(0.7); }
-          else if (phase == "thinking")  { call.set_rgb(0.0, 0.9, 1.0); call.set_brightness(0.6); call.set_effect("Fast pulse"); }
-          else if (phase == "replying")  { call.set_rgb(0.1, 1.0, 0.2); call.set_brightness(0.6); }
-          else if (phase == "error")     { call.set_rgb(1.0, 0.0, 0.0); call.set_brightness(0.8); }
-          else if (phase == "muted")     { call.set_rgb(1.0, 0.0, 0.0); call.set_brightness(0.08); }
-          else                           { call.set_rgb(1.0, 0.5, 0.0); call.set_brightness(0.4); call.set_effect("Breathe"); }
-          call.perform();
+          // Same colours on both; the ring gets its own animations.
+          for (int ring = 0; ring < 2; ring++) {
+            auto call = ring ? id(ring_leds).turn_on() : id(hat_leds).turn_on();
+            call.set_effect("None");
+            call.set_color_mode(ColorMode::RGB);
+            if (phase == "idle")           { call.set_rgb(0.0, 0.2, 1.0); call.set_brightness(0.08); }
+            else if (phase == "listening") { call.set_rgb(0.0, 0.3, 1.0); call.set_brightness(0.7); }
+            else if (phase == "thinking")  { call.set_rgb(0.0, 0.9, 1.0); call.set_brightness(0.6); call.set_effect(ring ? "Spin" : "Fast pulse"); }
+            else if (phase == "replying")  { call.set_rgb(0.1, 1.0, 0.2); call.set_brightness(0.6); if (ring) call.set_effect("Talk"); }
+            else if (phase == "error")     { call.set_rgb(1.0, 0.0, 0.0); call.set_brightness(0.8); }
+            else if (phase == "muted")     { call.set_rgb(1.0, 0.0, 0.0); call.set_brightness(0.08); }
+            else                           { call.set_rgb(1.0, 0.5, 0.0); call.set_brightness(0.4); call.set_effect("Breathe"); }
+            call.perform();
+          }
