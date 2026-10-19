@@ -16,6 +16,8 @@ substitutions:
   # Head LEDs: one chain, jewel 7 -> ring 12 -> ring 16 -> ring 24 (59 LEDs),
   # data in on D0. See packages/flex-rings.yaml for the calibration.
   head_leds_pin: GPIO1
+  # "180" if the cap sits on the head turned round from the LED calibration
+  head_rotation: "0"
   # Line the mic directions up with the 24 ring (see packages/base.yaml):
   # say the wake word from straight in front and adjust until the beam faces you.
   ring_led_offset: "0"

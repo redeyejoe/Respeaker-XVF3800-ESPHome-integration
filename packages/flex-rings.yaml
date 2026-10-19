@@ -7,7 +7,7 @@
 #                     -> ring 12 (7-18) -> ring 16 (19-34) -> ring 24 (35-58)
 #
 # Calibration (measured on the head with gimp_led_test.ino; angles are seen
-# from above, 0 = robot front, clockwise):
+# from above, 0 = robot front, clockwise; head_rotation turns all of it):
 #   ring 24 / 16 / 12 : ring LED 0 faces front.  Ring 16 counts counter-clockwise.
 #   jewel             : 2nd circle LED faces front.
 #
@@ -34,6 +34,10 @@
 
 substitutions:
   head_leds_pin: GPIO1   # D0 on the XIAO
+  # How far the whole cap is turned from the bench calibration, in degrees
+  # clockwise seen from above. "180" if the LEDs' "front" ends up at the back.
+  # Mics and rings turn together, so ring_led_offset / ring_reverse don't change.
+  head_rotation: "0"
 
 select:
   - platform: template
@@ -86,7 +90,7 @@ sensor:
       int j = ((int) id(beam_direction).state) % N;
       int i = ((j + (${ring_led_offset})) % N + N) % N;   // same mapping as the ring24 part of "Head"
       if (${ring_reverse}) i = (N - i) % N;
-      return i * 15.0f;                                   // ring 24 LED 0 faces front, counts clockwise
+      return fmodf(i * 15.0f + ${head_rotation} + 720.0f, 360.0f);  // ring 24 LED 0 = bench front, clockwise
     filters:
       - delta: 1.0
 
@@ -120,14 +124,15 @@ light:
               k = ((k % R.count) + R.count) % R.count;
               return R.start + (R.centre ? 1 : 0) + k;
             };
+            const float ROT = ${head_rotation};       // cap turned on the head (deg, clockwise)
             auto ang = [&](int r, int k) {
               const HeadRing &R = RINGS[r];
-              float a = fmodf(R.dir * (k - R.front) * 360.0f / R.count, 360.0f);
+              float a = fmodf(R.dir * (k - R.front) * 360.0f / R.count + ROT, 360.0f);
               return a < 0 ? a + 360.0f : a;
             };
             auto nearest = [&](int r, float deg) {
               const HeadRing &R = RINGS[r];
-              int steps = (int) lroundf(deg / (360.0f / R.count));
+              int steps = (int) lroundf(fmodf(deg - ROT + 720.0f, 360.0f) / (360.0f / R.count));
               return ((R.front + R.dir * steps) % R.count + R.count) % R.count;
             };
             auto angdiff = [](float a, float b) { float d = fmodf(fabsf(a - b), 360.0f); return d > 180.0f ? 360.0f - d : d; };
