@@ -35,6 +35,7 @@ substitutions:
   flash_size: 8MB          # 16MB on a XIAO ESP32S3 Plus
   respeaker_repo: https://github.com/redeyejoe/Respeaker-XVF3800-ESPHome-integration
   respeaker_ref: main
+  respeaker_repo_raw: https://raw.githubusercontent.com/redeyejoe/Respeaker-XVF3800-ESPHome-integration
 
 esphome:
   name: ${name}
@@ -256,6 +257,8 @@ micro_wake_word:
     gain_factor: 2
   stop_after_detection: false
   models:
+    - model: ${respeaker_repo_raw}/${respeaker_ref}/wake_words/hey_gimp.json
+      id: hey_gimp
     - model: https://github.com/OHF-Voice/micro-wake-word/releases/download/okay_nabu_20241226.3/okay_nabu.json
       id: okay_nabu
     - model: hey_jarvis
