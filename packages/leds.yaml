@@ -2,7 +2,7 @@
 # Respeaker XVF3800 satellite — LED ring package
 #
 # reSpeaker Flex: the effects below render a 24-entry frame. The driver keeps it
-# and the ring24_strip light (end of this file) shows it on the WS2812 ring.
+# and the "Head" effect of head_strip (flex-rings.yaml) shows it on the 24 ring.
 #
 # A 50 ms interval reads the "current_led_effect" global and calls one
 # "update_*_effect" script. The "control_leds" script decides which effect the
@@ -421,7 +421,7 @@ script:
 
           if (id(beam_direction).has_state()) {
             // reSpeaker Flex: no fixed offset here. ring_led_offset / ring_reverse
-            // (base.yaml substitutions) line the whole ring up in the Mirror effect.
+            // (base.yaml substitutions) line the whole ring up in flex-rings.yaml.
             float target_pos = ((int)id(beam_direction).state) % NUM_LEDS;
             float current_pos = id(animated_beam_position);
 

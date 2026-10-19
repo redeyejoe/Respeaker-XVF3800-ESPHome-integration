@@ -517,8 +517,8 @@ void RespeakerXVF3800::xmos_write_bytes(uint8_t resid, uint8_t cmd, const uint8_
 
 void RespeakerXVF3800::set_led_ring(uint32_t *rgb_array) {
   // reSpeaker Flex: there is no LED ring on the XMOS side, so nothing goes over
-  // I2C. The frame (24 x 0xRRGGBB) is kept here and the "Mirror" effect of the
-  // ring24_strip light copies it to the WS2812 ring on the XIAO every tick.
+  // I2C. The frame (24 x 0xRRGGBB) is kept here and the "Head" effect of the
+  // head_strip light (flex-rings.yaml) copies it to the 24-LED ring every tick.
   memcpy(this->last_led_frame_, rgb_array, sizeof(this->last_led_frame_));
   this->led_frame_valid_ = true;
 }

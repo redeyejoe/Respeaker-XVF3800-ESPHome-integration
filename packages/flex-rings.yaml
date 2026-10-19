@@ -1,71 +1,284 @@
 # =============================================================================
-# reSpeaker Flex satellite: LED ring package
+# reSpeaker Flex satellite (The Gimp): head LED package
 #
-# The Flex has no LED ring of its own. Its effects in leds.yaml draw a 24-entry
-# frame; the ring24_strip light below shows that frame on a WS2812 ring wired
-# to the XIAO. Three more rings hang off a second pin as plain HA lights.
+# All four rings are one WS2812 chain on one XIAO pin (59 LEDs):
 #
-#   D0 / GPIO1 : 24-LED ring (listening, thinking, speaking, voice direction)
-#   D2 / GPIO3 : 16 -> 12 -> 7 rings, daisy-chained (35 LEDs)
+#   ${head_leds_pin} -> 330-470 ohm -> jewel 7 (chain 0-6, 0 = centre)
+#                     -> ring 12 (7-18) -> ring 16 (19-34) -> ring 24 (35-58)
 #
-# Power the rings from their own 5 V supply and tie its ground to the board.
-# Line the 24-LED ring up with the mics using ring_led_offset / ring_reverse
-# (substitutions in base.yaml).
+# Calibration (measured on the head with gimp_led_test.ino; angles are seen
+# from above, 0 = robot front, clockwise):
+#   ring 24 / 16 / 12 : ring LED 0 faces front.  Ring 16 counts counter-clockwise.
+#   jewel             : 2nd circle LED faces front.
+#
+# Ring 24 shows the voice-ring effects from leds.yaml (listening beam, thinking,
+# volume, timers ...). ring_led_offset / ring_reverse (base.yaml) line the mic
+# directions up with it. The upper rings follow the device state on their own:
+#
+#   idle            slow "alive" ripple up the head with the odd twinkle
+#   wake word       double blue flash, then attentive blue
+#   listening       attentive blue pulse
+#   thinking        busy brain: random sparks + counter-rotating comets
+#   replying        green level rising from the 16 ring to the jewel
+#   error           red double blink
+#   timer ringing   orange flash
+#   muted           jewel centre dim red
+#   no connection   jewel centre slow red breathing
+#
+# The "Head Lights Mode" select overrides the idle look for the whole head
+# (Alive, Thinking, Happy, Drive, Reverse, Turn left/right, Sleep, Off). Voice
+# activity, errors and timers still take over while they happen.
+#
+# Power the rings from their own 5 V supply and tie its ground to the XIAO.
 # =============================================================================
+
+substitutions:
+  head_leds_pin: GPIO1   # D0 on the XIAO
+
+select:
+  - platform: template
+    id: head_mode
+    name: "Head Lights Mode"
+    icon: "mdi:head-lightbulb-outline"
+    optimistic: true
+    restore_value: true
+    initial_option: "Auto"
+    options:
+      - "Auto"
+      - "Alive"
+      - "Thinking"
+      - "Happy"
+      - "Drive"
+      - "Reverse"
+      - "Turn left"
+      - "Turn right"
+      - "Sleep"
+      - "Off"
+
+number:
+  - platform: template
+    id: head_brightness
+    name: "Head Lights Brightness"
+    icon: "mdi:brightness-6"
+    entity_category: config
+    unit_of_measurement: "%"
+    optimistic: true
+    restore_value: true
+    initial_value: 50
+    min_value: 0
+    max_value: 100
+    step: 5
+
+sensor:
+  # Direction of the last voice relative to the robot: 0 = front, 90 = right,
+  # 180 = back, 270 = left. "Voice Direction" (hardware.yaml) is the same
+  # thing in the mic board's own frame.
+  - platform: template
+    id: voice_direction_robot
+    name: "Voice Direction (robot)"
+    unit_of_measurement: "°"
+    icon: "mdi:robot-outline"
+    accuracy_decimals: 0
+    update_interval: 250ms
+    lambda: |-
+      if (!id(beam_direction).has_state() || id(beam_direction).state < 0) return {};
+      const int N = 24;
+      int j = ((int) id(beam_direction).state) % N;
+      int i = ((j + (${ring_led_offset})) % N + N) % N;   // same mapping as the ring24 part of "Head"
+      if (${ring_reverse}) i = (N - i) % N;
+      return i * 15.0f;                                   // ring 24 LED 0 faces front, counts clockwise
+    filters:
+      - delta: 1.0
 
 light:
   - platform: esp32_rmt_led_strip
-    id: ring24_strip
-    name: "Ring 24 (raw)"
+    id: head_strip
+    name: "Head LEDs (raw)"
     internal: true
-    pin: GPIO1
-    num_leds: 24
+    pin: ${head_leds_pin}
+    num_leds: 59
     chipset: WS2812
-    rgb_order: GRB
+    channel_colors: GRB
     default_transition_length: 0s
     restore_mode: ALWAYS_ON
     effects:
       - addressable_lambda:
-          name: "Mirror"
-          update_interval: 16ms
+          name: "Head"
+          update_interval: 20ms
           lambda: |-
-            const uint32_t *frame = id(respeaker).led_frame();
-            const int N = it.size();
-            for (int i = 0; i < N; i++) {
-              int src = ${ring_reverse} ? (N - i) % N : i;
-              src = ((src - (${ring_led_offset})) % N + N) % N;
-              uint32_t c = frame[src];
-              it[i] = Color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+            // ---------------- chain layout + calibration ----------------
+            struct HeadRing { int start, count, front, dir, tier; bool centre; };
+            static const HeadRing RINGS[4] = {
+              {0, 6, 1, 1, 3, true},     // jewel: chain 0 = centre, 1..6 circle
+              {7, 12, 0, 1, 2, false},   // ring 12
+              {19, 16, 0, -1, 1, false}, // ring 16 (counts counter-clockwise)
+              {35, 24, 0, 1, 0, false},  // ring 24 (voice ring)
+            };
+            const int NUM = 59, R24 = 3, R24_START = 35;
+            auto chain = [&](int r, int k) {
+              const HeadRing &R = RINGS[r];
+              k = ((k % R.count) + R.count) % R.count;
+              return R.start + (R.centre ? 1 : 0) + k;
+            };
+            auto ang = [&](int r, int k) {
+              const HeadRing &R = RINGS[r];
+              float a = fmodf(R.dir * (k - R.front) * 360.0f / R.count, 360.0f);
+              return a < 0 ? a + 360.0f : a;
+            };
+            auto nearest = [&](int r, float deg) {
+              const HeadRing &R = RINGS[r];
+              int steps = (int) lroundf(deg / (360.0f / R.count));
+              return ((R.front + R.dir * steps) % R.count + R.count) % R.count;
+            };
+            auto angdiff = [](float a, float b) { float d = fmodf(fabsf(a - b), 360.0f); return d > 180.0f ? 360.0f - d : d; };
+
+            // ---------------- float frame buffer ----------------
+            static float buf[59][3];
+            auto clr = [&]() { memset(buf, 0, sizeof(buf)); };
+            auto put = [&](int i, float r, float g, float b) { if (i >= 0 && i < NUM) { buf[i][0] = r; buf[i][1] = g; buf[i][2] = b; } };
+            auto add = [&](int i, float r, float g, float b) {
+              if (i < 0 || i >= NUM) return;
+              buf[i][0] = std::min(255.0f, buf[i][0] + r); buf[i][1] = std::min(255.0f, buf[i][1] + g); buf[i][2] = std::min(255.0f, buf[i][2] + b);
+            };
+            auto fade = [&](float f) { for (int i = 0; i < NUM; i++) for (int c = 0; c < 3; c++) buf[i][c] *= f; };
+            auto hsv = [](float h, float s, float v, float &r, float &g, float &b) {
+              h = fmodf(h, 360.0f); if (h < 0) h += 360.0f;
+              float c = v * s, x = c * (1 - fabsf(fmodf(h / 60.0f, 2.0f) - 1)), m = v - c, rr, gg, bb;
+              switch (((int) (h / 60.0f)) % 6) {
+                case 0: rr = c; gg = x; bb = 0; break;  case 1: rr = x; gg = c; bb = 0; break;
+                case 2: rr = 0; gg = c; bb = x; break;  case 3: rr = 0; gg = x; bb = c; break;
+                case 4: rr = x; gg = 0; bb = c; break;  default: rr = c; gg = 0; bb = x; break;
+              }
+              r = (rr + m) * 255; g = (gg + m) * 255; b = (bb + m) * 255;
+            };
+            // fn(chain index, ring, angle (-1 = jewel centre), tier) for rings 0..last
+            auto each = [&](int last, auto fn) {
+              for (int r = 0; r <= last; r++) {
+                for (int k = 0; k < RINGS[r].count; k++) fn(chain(r, k), r, ang(r, k), RINGS[r].tier);
+                if (RINGS[r].centre) fn(RINGS[r].start, r, -1.0f, 4);
+              }
+            };
+
+            // ---------------- which look ----------------
+            enum { S_OFFLINE, S_IDLE, S_MUTED, S_WAKE, S_LISTEN, S_THINK, S_SPEAK, S_ERROR, S_TIMER,
+                   S_ALIVE, S_HAPPY, S_DRIVE, S_REVERSE, S_TURN_L, S_TURN_R, S_SLEEP, S_OFF };
+            const uint32_t now = millis();
+            const int phase = id(voice_assistant_phase);
+            const bool online = id(wifi_id).is_connected() && id(api_id).is_connected();
+            auto sel = id(head_mode).active_index();
+            const int user_mode = sel.has_value() ? (int) *sel : 0;
+            static const int OVERRIDE[10] = {S_IDLE, S_ALIVE, S_THINK, S_HAPPY, S_DRIVE, S_REVERSE, S_TURN_L, S_TURN_R, S_SLEEP, S_OFF};
+            bool whole = false;                        // true: the look covers ring 24 too
+            int st;
+            if (id(timer_ringing).state)                                      st = S_TIMER;
+            else if (phase == ${voice_assist_waiting_for_command_phase_id})   st = S_WAKE;
+            else if (phase == ${voice_assist_listening_for_command_phase_id}) st = S_LISTEN;
+            else if (phase == ${voice_assist_thinking_phase_id})              st = S_THINK;
+            else if (phase == ${voice_assist_replying_phase_id})              st = S_SPEAK;
+            else if (phase == ${voice_assist_error_phase_id})                 st = S_ERROR;
+            else if (!online)                                                 st = S_OFFLINE;
+            else if (user_mode > 0 && user_mode < 10) { st = OVERRIDE[user_mode]; whole = true; }
+            else                                       st = id(mic_mute_switch).state ? S_MUTED : S_IDLE;
+
+            static int last_st = -1; static bool last_whole = false; static uint32_t st_start = 0;
+            if (initial_run || st != last_st || whole != last_whole) { last_st = st; last_whole = whole; st_start = now; clr(); }
+            const uint32_t t = now - st_start;
+            const float s = t / 1000.0f;
+            const int last = whole ? R24 : R24 - 1;   // rings this look paints
+
+            // ---------------- looks ----------------
+            switch (st) {
+              case S_IDLE: case S_ALIVE: {
+                each(last, [&](int i, int r, float a, int tier) {
+                  float wave = 0.5f + 0.5f * sinf(s * 0.9f - tier * 0.7f);
+                  float drift = 0.5f + 0.5f * sinf(s * 0.25f + (a < 0 ? 0 : a) * 0.0175f);
+                  float R, G, B; hsv(175 + 25 * drift, 0.9f, 0.05f + 0.20f * wave, R, G, B); put(i, R, G, B);
+                });
+                static float tw[59];
+                if (random_uint32() % 1000 < 15) tw[random_uint32() % (whole ? NUM : R24_START)] = 1.0f;
+                for (int i = 0; i < NUM; i++) if (tw[i] > 0.01f) { add(i, 120 * tw[i], 120 * tw[i], 160 * tw[i]); tw[i] *= 0.93f; }
+                break;
+              }
+              case S_WAKE:
+                if (t < 120 || (t > 220 && t < 340)) { each(last, [&](int i, int, float, int) { put(i, 40, 120, 255); }); break; }
+                if (t < 600) { fade(0.85f); break; }
+                [[fallthrough]];   // then attentive blue
+              case S_LISTEN:
+                each(last, [&](int i, int r, float a, int tier) { float v = 0.25f + 0.15f * sinf(s * 6 - tier); put(i, 0, 60 * v, 255 * v); });
+                break;
+              case S_THINK: {
+                fade(0.86f);
+                const int span = whole ? NUM : R24_START;
+                for (int n = 0; n < 3; n++) { float R, G, B; hsv(random_uint32() % 360, 1, 1, R, G, B); add(random_uint32() % span, R, G, B); }
+                for (int r = 0; r <= last; r++) {
+                  float speed = (r % 2 ? -1 : 1) * (90 + 60 * r);
+                  float a = fmodf(s * speed + 36000.0f, 360.0f);
+                  float R, G, B; hsv(s * 60 + r * 80, 1, 1, R, G, B);
+                  add(chain(r, nearest(r, a)), R, G, B);
+                }
+                float v = 0.5f + 0.5f * sinf(s * 10); put(RINGS[0].start, 255 * v, 255 * v, 255 * v);
+                break;
+              }
+              case S_SPEAK: {
+                static float env = 0, target = 0; static uint32_t next = 0;
+                if (now >= next) { target = (random_uint32() % 100) < 20 ? 0.1f : (30 + random_uint32() % 70) / 100.0f; next = now + 60 + random_uint32() % 100; }
+                env += (target - env) * 0.35f;
+                const int levels = whole ? 5 : 4, base_tier = whole ? 0 : 1;
+                each(last, [&](int i, int r, float a, int tier) {
+                  float lit = env * levels - (tier - base_tier);
+                  float v = lit >= 1 ? 1 : (lit > 0 ? lit : 0.05f);
+                  put(i, 30 * v, 255 * v, 90 * v);
+                });
+                break;
+              }
+              case S_ERROR: {
+                uint32_t p = t % 1500; bool on = p < 120 || (p > 250 && p < 370);
+                each(last, [&](int i, int, float, int) { put(i, on ? 255 : 10, 0, 0); });
+                break;
+              }
+              case S_TIMER: {
+                bool on = (t % 1000) < 500;
+                each(last, [&](int i, int, float, int) { put(i, on ? 255 : 30, on ? 110 : 12, 0); });
+                break;
+              }
+              case S_MUTED:   clr(); put(RINGS[0].start, 40, 0, 0); break;
+              case S_OFFLINE: { clr(); float v = 0.1f + 0.3f * (0.5f + 0.5f * sinf(s * 1.5f)); put(RINGS[0].start, 255 * v, 0, 0); break; }
+              case S_HAPPY:
+                each(last, [&](int i, int r, float a, int tier) { float R, G, B; hsv((a < 0 ? 0 : a) + tier * 40 + s * 120, 1, 0.8f, R, G, B); put(i, R, G, B); });
+                break;
+              case S_DRIVE: case S_REVERSE: {
+                const float dirn = st == S_DRIVE ? 1.0f : -1.0f;      // bands flow front -> back when driving forward
+                each(last, [&](int i, int r, float a, int tier) {
+                  float x = a < 0 ? 0 : cosf(a * 0.0175f);
+                  float v = 0.5f + 0.5f * sinf(x * 4.0f + dirn * s * 8.0f); v = v * v * v;
+                  put(i, 255 * (0.05f + 0.95f * v), 110 * (0.05f + 0.95f * v), 0);
+                });
+                break;
+              }
+              case S_TURN_L: case S_TURN_R: {
+                const float dirn = st == S_TURN_R ? 1.0f : -1.0f;      // clockwise seen from above = turning right
+                fade(0.80f);
+                float a = fmodf(dirn * t * 0.36f + 3600000.0f, 360.0f);
+                for (int r = 0; r <= last; r++) add(chain(r, nearest(r, fmodf(a - r * 25.0f * dirn + 720.0f, 360.0f))), 255, 140, 0);
+                break;
+              }
+              case S_SLEEP: { clr(); float v = 0.02f + 0.06f * (0.5f + 0.5f * sinf(s * 0.8f)); put(RINGS[0].start, 480 * v, 0, 1020 * v); break; }
+              case S_OFF: default: clr(); break;
             }
 
-  - platform: esp32_rmt_led_strip
-    id: upper_rings
-    name: "Upper rings (raw)"
-    internal: true
-    pin: GPIO3
-    num_leds: 35
-    chipset: WS2812
-    rgb_order: GRB
-    default_transition_length: 0s
-
-  - platform: partition
-    name: "Ring 16"
-    id: ring16
-    segments:
-      - id: upper_rings
-        from: 0
-        to: 15
-  - platform: partition
-    name: "Ring 12"
-    id: ring12
-    segments:
-      - id: upper_rings
-        from: 16
-        to: 27
-  - platform: partition
-    name: "Ring 7"
-    id: ring7
-    segments:
-      - id: upper_rings
-        from: 28
-        to: 34
+            // ---------------- output ----------------
+            float scale = id(head_brightness).has_state() ? id(head_brightness).state / 100.0f : 0.5f;
+            const uint32_t *frame = id(respeaker).led_frame();
+            for (int i = 0; i < NUM && i < it.size(); i++) {
+              if (i >= R24_START && !whole) {
+                // ring 24 mirrors the voice-ring frame from leds.yaml (already brightness-scaled)
+                const int N = 24, k = i - R24_START;
+                int src = ${ring_reverse} ? (N - k) % N : k;
+                src = ((src - (${ring_led_offset})) % N + N) % N;
+                uint32_t c = frame[src];
+                it[i] = Color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+              } else {
+                it[i] = Color((uint8_t) std::min(255.0f, buf[i][0] * scale), (uint8_t) std::min(255.0f, buf[i][1] * scale),
+                              (uint8_t) std::min(255.0f, buf[i][2] * scale));
+              }
+            }

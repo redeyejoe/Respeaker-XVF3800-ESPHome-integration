@@ -5,11 +5,16 @@
 >   The round board's square-array firmware has been removed from this repo.
 > - **Software mic mute.** On the Flex, XMOS pin X0D30 is the amplifier's
 >   SD/FAULT line, so "Microphone Mute" is a template switch that ignores wake words.
-> - **External 24-LED WS2812 ring on D0 (GPIO1)** shows all the ring effects,
->   including voice direction at 15° per LED. Align it with `ring_led_offset`
->   and `ring_reverse`.
-> - **16 → 12 → 7 rings chained on D2 (GPIO3)**, three lights in Home Assistant.
-> - **"Voice Direction" sensor** in degrees.
+> - **Head LEDs: one WS2812 chain on D0 (GPIO1)**, jewel 7 → ring 12 → ring 16
+>   → ring 24 (59 LEDs), calibrated so every ring knows where the robot's front
+>   is (`packages/flex-rings.yaml`). Ring 24 shows the voice-ring effects,
+>   including voice direction at 15° per LED (align with `ring_led_offset` and
+>   `ring_reverse`); the upper rings follow the device state (alive, wake,
+>   listening, thinking, replying, error, timer, muted). A "Head Lights Mode"
+>   select adds Alive / Thinking / Happy / Drive / Reverse / Turn / Sleep / Off.
+>   `tools/gimp_led_test/` is the bench sketch used to calibrate the rings.
+> - **"Voice Direction" sensor** in degrees, plus **"Voice Direction (robot)"**
+>   (0 = front, clockwise) for turning the robot toward the speaker.
 > - Use `config/gimp-voice.yaml`. D3 (GPIO4) is left free for a UART link to the Teensy.
 >
 > **Also in this fork: a stand-alone voice box from a ReSpeaker 2-Mic Pi HAT v1**
