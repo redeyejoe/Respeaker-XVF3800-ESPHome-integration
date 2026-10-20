@@ -10,14 +10,17 @@
 #   35 I2S word clock -> D8  (GPIO7)    the HAT drives it
 #   38 mic data       -> D6  (GPIO43)   HAT -> XIAO
 #   40 speaker data   -> D7  (GPIO44)   XIAO -> HAT
-#    3 I2C SDA        -> D4  (GPIO5)
-#    5 I2C SCL        -> D5  (GPIO6)
+#    3 I2C SDA        -> D4  (GPIO5)    + 4.7k pull-up to 3.3 V (the HAT has none;
+#    5 I2C SCL        -> D5  (GPIO6)    + 4.7k pull-up to 3.3 V  a Pi supplies them)
 #   11 button         -> D0  (GPIO1)
 #   19 LED data       -> D1  (GPIO2)    3x APA102
 #   23 LED clock      -> D3  (GPIO4)
 #    1 3.3 V          -> 3V3
 #    2 5 V            -> 5V             power the HAT's micro-USB with a good
 #    6 GND            -> GND            5 V supply; unplug it while flashing
+#   Speaker (HAT speaker connector): the two outputs are bridge-tied - never let
+#   them touch each other or ground, and connect the speaker with the power off.
+#   A short there can take out the WM8960 entirely.
 #   Doorbell button (optional, to GND) -> D10 (GPIO9)
 #
 # Adafruit NeoPixel Ring 12 (WS2812):

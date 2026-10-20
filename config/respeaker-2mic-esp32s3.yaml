@@ -10,8 +10,8 @@
 #   35 I2S word clock -> GPIO5     (the HAT drives it)
 #   38 mic data       -> GPIO6     (HAT -> ESP)
 #   40 speaker data   -> GPIO7     (ESP -> HAT)
-#    3 I2C SDA        -> GPIO8
-#    5 I2C SCL        -> GPIO9
+#    3 I2C SDA        -> GPIO8    + 4.7k pull-up to 3.3 V (the HAT has none)
+#    5 I2C SCL        -> GPIO9    + 4.7k pull-up to 3.3 V
 #   11 button         -> GPIO10
 #   19 LED data       -> GPIO11    (3x APA102)
 #   23 LED clock      -> GPIO12
