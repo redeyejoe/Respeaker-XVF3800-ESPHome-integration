@@ -259,6 +259,8 @@ micro_wake_word:
   models:
     - model: ${respeaker_repo_raw}/${respeaker_ref}/wake_words/hey_gimp.json
       id: hey_gimp
+    - model: ${respeaker_repo_raw}/${respeaker_ref}/wake_words/gimp.json
+      id: gimp
     - model: https://github.com/OHF-Voice/micro-wake-word/releases/download/okay_nabu_20241226.3/okay_nabu.json
       id: okay_nabu
     - model: hey_jarvis
