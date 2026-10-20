@@ -257,10 +257,8 @@ micro_wake_word:
     gain_factor: 2
   stop_after_detection: false
   models:
-    - model: ${respeaker_repo_raw}/${respeaker_ref}/wake_words/hey_gimp.json
-      id: hey_gimp
-    - model: ${respeaker_repo_raw}/${respeaker_ref}/wake_words/gimp.json
-      id: gimp
+    # The robot's own wake words live on the Gimp. To make this box answer to
+    # them too, add: - model: ${respeaker_repo_raw}/${respeaker_ref}/wake_words/hey_gimp.json
     - model: https://github.com/OHF-Voice/micro-wake-word/releases/download/okay_nabu_20241226.3/okay_nabu.json
       id: okay_nabu
     - model: hey_jarvis
