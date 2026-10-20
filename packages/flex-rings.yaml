@@ -103,6 +103,9 @@ light:
     num_leds: 59
     chipset: WS2812
     channel_colors: GRB
+    # No built-in curve: the "Head" effect applies its own. ESPHome's default
+    # gamma 2.8 would round the dim idle looks down to black.
+    gamma_correct: 1.0
     default_transition_length: 0s
     restore_mode: ALWAYS_ON
     effects:
@@ -272,6 +275,16 @@ light:
             }
 
             // ---------------- output ----------------
+            // Ring 24 keeps the gamma 2.8 look it always had; the upper looks get a gentle 1.8.
+            static uint8_t g28[256], g18[256];
+            static bool tables = false;
+            if (!tables) {
+              for (int v = 0; v < 256; v++) {
+                g28[v] = (uint8_t) lroundf(255.0f * powf(v / 255.0f, 2.8f));
+                g18[v] = (uint8_t) std::max(v > 0 ? 1L : 0L, lroundf(255.0f * powf(v / 255.0f, 1.8f)));
+              }
+              tables = true;
+            }
             float scale = id(head_brightness).has_state() ? id(head_brightness).state / 100.0f : 0.5f;
             const uint32_t *frame = id(respeaker).led_frame();
             for (int i = 0; i < NUM && i < it.size(); i++) {
@@ -281,9 +294,9 @@ light:
                 int src = ${ring_reverse} ? (N - k) % N : k;
                 src = ((src - (${ring_led_offset})) % N + N) % N;
                 uint32_t c = frame[src];
-                it[i] = Color((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF);
+                it[i] = Color(g28[(c >> 16) & 0xFF], g28[(c >> 8) & 0xFF], g28[c & 0xFF]);
               } else {
-                it[i] = Color((uint8_t) std::min(255.0f, buf[i][0] * scale), (uint8_t) std::min(255.0f, buf[i][1] * scale),
-                              (uint8_t) std::min(255.0f, buf[i][2] * scale));
+                it[i] = Color(g18[(uint8_t) std::min(255.0f, buf[i][0] * scale)], g18[(uint8_t) std::min(255.0f, buf[i][1] * scale)],
+                              g18[(uint8_t) std::min(255.0f, buf[i][2] * scale)]);
               }
             }
