@@ -3,7 +3,8 @@
 #
 # All four rings are one WS2812 chain on one XIAO pin (59 LEDs):
 #
-#   ${head_leds_pin} -> 330-470 ohm -> jewel 7 (chain 0-6, 0 = centre)
+#   ${head_leds_pin} -> jewel 7 DIN (chain 0-6, 0 = centre)   [direct wire: a series
+#     resistor stopped it working - the XIAO's 3.3 V signal is marginal for 5 V LEDs]
 #                     -> ring 12 (7-18) -> ring 16 (19-34) -> ring 24 (35-58)
 #
 # Calibration (measured on the head with gimp_led_test.ino; angles are seen
