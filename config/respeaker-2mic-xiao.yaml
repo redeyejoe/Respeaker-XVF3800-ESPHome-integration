@@ -33,9 +33,9 @@
 # Finger "scanner" (XIAO ESP32S3 Plus only - D11 is one of its extra edge pads):
 #   CJMCU-0101 touch pad: OUT -> D11 (GPIO38), VCC -> 3V3, GND -> GND
 #   MAX30102 pulse-ox board: SDA -> D4, SCL -> D5 (same bus as the HAT),
-#     VIN -> 3V3, GND -> GND, INT unused. Some MAX30102 boards pull SDA/SCL up
-#     to 1.8 V: if SDA idles near 2.5 V instead of 3.3 V, remove the board's
-#     three pull-up resistors (the HAT bus already has its 4.7k ones).
+#     VIN -> 3V3, GND -> GND, INT/RD/IRD unused. The purple board's 3-pad
+#     solder jumper sets its I2C pull-ups to 1.8 V or 3.3 V: bridge it to 3.3 V
+#     (at 1.8 V, SDA idles near 2.5 V on this bus and I2C gets flaky).
 #   Touching the pad lights the MAX30102's red LED through the finger, runs a
 #   scan on the ring and HAT LEDs, then tells Home Assistant (event
 #   esphome.greeter_visitor, source: finger). The HAT button and the doorbell
