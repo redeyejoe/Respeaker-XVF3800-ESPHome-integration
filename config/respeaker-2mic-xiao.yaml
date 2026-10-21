@@ -674,6 +674,10 @@ light:
     id: ring_leds
     name: Ring
     pin: GPIO3
+    # RGB ring (Adafruit 1643, WS2812): WS2812 + GRB.
+    # RGBW ring (Adafruit 2851/2852/2853, SK6812 with a white chip in each LED):
+    #   chipset: SK6812 and channel_colors: GRBW - with the RGB settings only
+    #   9 of the 12 LEDs light, because each RGBW LED takes 4 bytes instead of 3.
     chipset: WS2812
     channel_colors: GRB
     num_leds: 12
@@ -841,7 +845,6 @@ script:
           for (int ring = 0; ring < 2; ring++) {
             auto call = ring ? id(ring_leds).turn_on() : id(hat_leds).turn_on();
             call.set_effect("None");
-            call.set_color_mode(ColorMode::RGB);
             if (phase == "idle")           { call.set_rgb(0.0, 0.2, 1.0); call.set_brightness(0.08); }
             else if (phase == "listening") { call.set_rgb(0.0, 0.3, 1.0); call.set_brightness(0.7); }
             else if (phase == "thinking")  { call.set_rgb(0.0, 0.9, 1.0); call.set_brightness(0.6); call.set_effect(ring ? "Spin" : "Fast pulse"); }
