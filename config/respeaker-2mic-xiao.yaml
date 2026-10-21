@@ -16,6 +16,9 @@
 #   19 LED data       -> D1  (GPIO2)    3x APA102
 #   23 LED clock      -> D3  (GPIO4)
 #    1 3.3 V          -> 3V3
+#   17 3.3 V          -> 3V3 as well: pins 1 and 17 are NOT joined on the KS0314
+#                        (a Pi joins them), and with 17 dead I2C reads "SCL held low"
+#    4 5 V            -> 5V as well, unless pins 2 and 4 read 0 ohms to each other
 #    2 5 V            -> 5V             power the HAT's micro-USB with a good
 #    6 GND            -> GND            5 V supply; unplug it while flashing
 #   Speaker (HAT speaker connector): the two outputs are bridge-tied - never let
