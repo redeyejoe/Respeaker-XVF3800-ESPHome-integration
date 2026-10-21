@@ -24,6 +24,9 @@
 > Seeed's `wm8960_asound.state`. Wiring and everything else are in
 > `config/respeaker-2mic-xiao.yaml` (Seeed XIAO ESP32S3, recommended) or
 > `config/respeaker-2mic-esp32s3.yaml` (ESP32-S3 DevKitC).
+> The XIAO config doubles as a front door greeter (touch-pad "fingerprint scan" with
+> a MAX30102, a camera LED ring, a conversation, and a transcript sent to your phone).
+> The Home Assistant side is the package `ha/front_door_greeter.yaml`.
 
 # reSpeaker XVF3800 — ESPHome voice satellite
 

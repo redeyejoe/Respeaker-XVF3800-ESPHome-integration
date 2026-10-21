@@ -1,0 +1,188 @@
+# =============================================================================
+# Front door greeter: Home Assistant side
+#
+# Works with config/respeaker-2mic-xiao.yaml. A visitor touches the finger pad,
+# presses the button or rings the doorbell, and then:
+#   1. finger pad only: the box has already done its red "fingerprint scan";
+#      it now says "Fingerprint scan complete."
+#   2. the camera ring runs the face scan, HA grabs a snapshot from the
+#      doorbell camera, and the box says "Facial scan complete."
+#   3. it asks "What can I do for you?" and the AI agent takes over:
+#      it asks who they are and who they are looking for
+#   4. when the conversation goes quiet, the whole transcript and the snapshot
+#      are sent to your phone and written to the logbook
+#
+# Install: put this file in /config/packages/ and make sure configuration.yaml has
+#   homeassistant:
+#     packages: !include_dir_named packages
+# then restart Home Assistant.
+#
+# Before it works:
+#   - Settings > Devices > ESPHome > Voice Box > Configure: turn on
+#     "Allow the device to perform Home Assistant actions".
+#   - Check the entity ids below against yours (Settings > Entities):
+#       assist_satellite.voice_box_assist_satellite   the box (appears twice)
+#       light.voice_box_ring                          the camera ring
+#       camera.front_door                             your doorbell camera
+#       notify.mobile_app_your_phone                  your phone (companion app)
+#   - Give the box its own pipeline and agent (see the prompt at the bottom).
+# =============================================================================
+
+template:
+  # Everything said during a visit, one line per turn. Kept in the "log"
+  # attribute because a state is limited to 255 characters.
+  - triggers:
+      - trigger: event
+        event_type: esphome.greeter_transcript
+      - trigger: event
+        event_type: greeter_transcript_reset
+    sensor:
+      - name: Front door transcript
+        unique_id: front_door_greeter_transcript
+        icon: mdi:script-text-outline
+        state: >-
+          {{ (trigger.event.data.get('text', '') | string)[:250] }}
+        attributes:
+          log: >-
+            {%- if trigger.event.event_type == 'greeter_transcript_reset' -%}
+            {%- else -%}
+              {{ this.attributes.get('log', '') ~ trigger.event.data.get('who', '?') ~ ': ' ~ trigger.event.data.get('text', '') ~ '\n' }}
+            {%- endif -%}
+
+automation:
+  - id: front_door_greeter
+    alias: Front door greeter
+    description: Scan theatre, conversation and summary when someone is at the front door
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: event
+        event_type: esphome.greeter_visitor
+    variables:
+      satellite: assist_satellite.voice_box_assist_satellite
+      ring: light.voice_box_ring
+      camera: camera.front_door
+      snapshot: /config/www/front_door_visitor.jpg
+      source: "{{ trigger.event.data.source | default('button') }}"
+      how: >-
+        {{ {'finger': 'touched the finger pad', 'doorbell': 'rang the doorbell',
+            'button': 'pressed the button'}.get(source, source) }}
+      started: "{{ now().strftime('%-I:%M %p') }}"
+    actions:
+      - event: greeter_transcript_reset
+
+      # 1. the fingerprint "result" (the box did the scan before sending the event)
+      - if: "{{ source == 'finger' }}"
+        then:
+          - action: assist_satellite.announce
+            target:
+              entity_id: "{{ satellite }}"
+            data:
+              message: Fingerprint scan complete.
+              preannounce: false
+          - event: esphome.greeter_transcript
+            event_data:
+              who: Greeter
+              text: Fingerprint scan complete.
+
+      # 2. face scan: the ring pulls their eyes to the lens, then a snapshot
+      - action: light.turn_on
+        target:
+          entity_id: "{{ ring }}"
+        data:
+          effect: Face Scan
+          rgb_color: [255, 255, 255]
+          brightness_pct: 100
+      - delay: 2.5
+      - action: camera.snapshot
+        continue_on_error: true
+        target:
+          entity_id: "{{ camera }}"
+        data:
+          filename: "{{ snapshot }}"
+      - action: light.turn_on
+        target:
+          entity_id: "{{ ring }}"
+        data:
+          effect: None
+          rgb_color: [255, 255, 255]
+          brightness_pct: 100
+      - action: assist_satellite.announce
+        target:
+          entity_id: "{{ satellite }}"
+        data:
+          message: Facial scan complete.
+          preannounce: false
+      - event: esphome.greeter_transcript
+        event_data:
+          who: Greeter
+          text: Facial scan complete. What can I do for you?
+
+      # 3. hand over to the AI agent
+      - action: assist_satellite.start_conversation
+        target:
+          entity_id: "{{ satellite }}"
+        data:
+          start_message: What can I do for you?
+          preannounce: false
+          extra_system_prompt: >-
+            A visitor at the front door just {{ how }}. You have already told them
+            their fingerprint and face were scanned and asked "What can I do for you?".
+            Find out their name, who they are looking for, and why they are here.
+
+      # 4. wait for the conversation to finish: it starts listening, then stays idle 15 s
+      - wait_for_trigger:
+          - trigger: state
+            entity_id: assist_satellite.voice_box_assist_satellite
+            to: listening
+        timeout: "00:00:10"
+      - wait_for_trigger:
+          - trigger: state
+            entity_id: assist_satellite.voice_box_assist_satellite
+            to: idle
+            for: "00:00:15"
+        timeout: "00:05:00"
+
+      - variables:
+          transcript: "{{ state_attr('sensor.front_door_transcript', 'log') or '(nothing said)' }}"
+      - action: logbook.log
+        data:
+          name: Front door
+          entity_id: "{{ satellite }}"
+          message: "{{ started }}, visitor {{ how }}. {{ transcript | replace('\n', ' | ') }}"
+      - action: notify.mobile_app_your_phone
+        data:
+          title: "Front door, {{ started }}"
+          message: "Visitor {{ how }}.\n{{ transcript }}"
+          data:
+            image: "/local/front_door_visitor.jpg?v={{ now().timestamp() | int }}"
+            url: /history
+      # For a real text message instead, set up the Twilio SMS integration and use:
+      # - action: notify.twilio_sms
+      #   data:
+      #     target: "+1XXXXXXXXXX"
+      #     message: "Front door {{ started }}: visitor {{ how }}.\n{{ transcript }}"
+
+# =============================================================================
+# The agent (Settings > Devices & services > Ollama > Add conversation agent)
+#   Name: Front door
+#   Control Home Assistant: No control   <- strangers talk to this one:
+#                                           never let it reach locks or lights
+#   Instructions:
+#
+#   You are the front door greeter at this house: a polite security system with
+#   a calm, slightly futuristic manner, talking to whoever is at the door.
+#   Keep every reply to one or two short sentences of plain speech, no lists,
+#   no emoji. Find out the visitor's name, who they are looking for and why
+#   they are here, one question at a time, and end each reply with a question
+#   until you know all three. Never say whether anyone is home, never promise
+#   that someone will come to the door, and never give out names, schedules or
+#   anything else about the household. If they are delivering something, ask
+#   them to leave it by the door. Once you know who they are, who they want and
+#   why, thank them, say their message has been passed on, and do not ask
+#   anything else.
+#
+# Then Settings > Voice assistants > Add assistant: "Front door", that agent,
+# your Piper voice. On the Voice Box device page set Assistant to "Front door".
+# Ending a reply with a question is what keeps the box listening for the answer.
+# =============================================================================

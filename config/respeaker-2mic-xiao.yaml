@@ -28,6 +28,22 @@
 #   5V  -> 5 V (same 5 V supply as the HAT, not the XIAO's 3V3)
 #   GND -> GND
 #   Put a 470-1000 uF capacitor across the ring's 5V and GND.
+#   On the front door greeter this is the ring round the camera lens.
+#
+# Finger "scanner" (XIAO ESP32S3 Plus only - D11 is one of its extra edge pads):
+#   CJMCU-0101 touch pad: OUT -> D11 (GPIO38), VCC -> 3V3, GND -> GND
+#   MAX30102 pulse-ox board: SDA -> D4, SCL -> D5 (same bus as the HAT),
+#     VIN -> 3V3, GND -> GND, INT unused. Some MAX30102 boards pull SDA/SCL up
+#     to 1.8 V: if SDA idles near 2.5 V instead of 3.3 V, remove the board's
+#     three pull-up resistors (the HAT bus already has its 4.7k ones).
+#   Touching the pad lights the MAX30102's red LED through the finger, runs a
+#   scan on the ring and HAT LEDs, then tells Home Assistant (event
+#   esphome.greeter_visitor, source: finger). The HAT button and the doorbell
+#   send the same event (source: button / doorbell). ha/front_door_greeter.yaml
+#   runs the rest: "fingerprint scan complete", the face scan, the conversation
+#   and the text summary. Everything said is sent as esphome.greeter_transcript.
+#   In HA, turn on "Allow the device to perform Home Assistant actions" for
+#   this device, or the events never arrive.
 #
 # Use the u.FL antenna: route it to the outside of the case.
 # =============================================================================
@@ -54,6 +70,9 @@ esphome:
       - script.execute:
           id: set_leds
           phase: offline
+      - script.execute:
+          id: pulse_ox_light
+          light_on: false
 
 esp32:
   board: seeed_xiao_esp32s3
@@ -108,6 +127,13 @@ i2c:
     sda: GPIO5
     scl: GPIO6
     frequency: 100kHz
+
+# MAX30102 pulse oximeter on the same bus. No ESPHome driver needed: the scan
+# only switches its red LED on and reads one sample (see pulse_ox_light below).
+i2c_device:
+  - id: pulse_ox
+    i2c_id: hat_i2c
+    address: 0x57
 
 audio_dac:
   - platform: wm8960
@@ -337,11 +363,23 @@ voice_assistant:
     - script.execute:
         id: set_leds
         phase: thinking
+  # What the visitor said and what the box answered, for the transcript in HA
+  on_stt_end:
+    - homeassistant.event:
+        event: esphome.greeter_transcript
+        data:
+          who: Visitor
+          text: !lambda return x;
   on_tts_start:
     - script.execute:
         id: set_leds
         phase: replying
     - micro_wake_word.enable_model: stop
+    - homeassistant.event:
+        event: esphome.greeter_transcript
+        data:
+          who: Greeter
+          text: !lambda return x;
   on_error:
     - if:
         condition:
@@ -411,10 +449,31 @@ switch:
     entity_category: config
     optimistic: true
     restore_mode: RESTORE_DEFAULT_ON
+  # On: the HAT button starts the greeter routine in HA. Off: it just listens.
+  - platform: template
+    id: greeter_mode
+    name: Greeter mode
+    icon: mdi:account-voice
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+sensor:
+  # Red light the MAX30102 saw at the end of the last finger scan (0-262143).
+  # Much higher with a finger on the sensor; handy for telling a real finger
+  # from a tap on the pad.
+  - platform: template
+    id: finger_level
+    name: Finger scanner level
+    icon: mdi:fingerprint
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: never
 
 binary_sensor:
-  # Optional doorbell push button between D10 and GND. Home Assistant can use it
-  # to start a conversation (assist_satellite.start_conversation) with whoever is at the door.
+  # Optional doorbell push button between D10 and GND. With Home Assistant
+  # connected it starts the greeter (ha/front_door_greeter.yaml); without it,
+  # it just flashes the ring.
   - platform: gpio
     id: doorbell_button
     name: Doorbell
@@ -429,18 +488,55 @@ binary_sensor:
       - delayed_on: 30ms
       - delayed_off: 100ms
     on_press:
-      - light.turn_on:
-          id: ring_leds
-          effect: Flash
-      - delay: 2s
       - if:
           condition:
-            voice_assistant.is_running:
-          then: []   # the voice pipeline is already driving the LEDs
-          else:
+            and:
+              - api.connected:
+              - not:
+                  voice_assistant.is_running:
+          then:
             - script.execute:
-                id: set_leds
-                phase: !lambda 'return id(mic_mute).state ? std::string("muted") : std::string("idle");'
+                id: visitor
+                source: doorbell
+          else:
+            - light.turn_on:
+                id: ring_leds
+                effect: Flash
+            - delay: 2s
+            - if:
+                condition:
+                  voice_assistant.is_running:
+                then: []   # the voice pipeline is already driving the LEDs
+                else:
+                  - script.execute:
+                      id: set_leds
+                      phase: !lambda 'return id(mic_mute).state ? std::string("muted") : std::string("idle");'
+
+  # CJMCU-0101 touch pad (the "fingerprint reader"). Its output goes high on
+  # touch; if it reads backwards, add "inverted: true" under pin.
+  - platform: gpio
+    id: finger_pad
+    name: Finger pad
+    icon: mdi:fingerprint
+    pin:
+      number: GPIO38
+      mode:
+        input: true
+        pulldown: true
+    filters:
+      - delayed_on: 50ms
+      - delayed_off: 200ms
+    on_press:
+      - if:
+          condition:
+            and:
+              - api.connected:
+              - not:
+                  voice_assistant.is_running:
+              - not:
+                  script.is_running: finger_scan
+          then:
+            - script.execute: finger_scan
 
   - platform: gpio
     id: hat_button
@@ -455,7 +551,8 @@ binary_sensor:
       - delayed_on: 20ms
       - delayed_off: 20ms
     on_multi_click:
-      # Short press: talk without the wake word (or stop a running conversation)
+      # Short press: start the greeter (or stop a running conversation).
+      # Without Home Assistant's greeter automation it just starts listening.
       - timing:
           - ON for at most 0.8s
           - OFF for at least 0.3s
@@ -470,7 +567,15 @@ binary_sensor:
                     condition:
                       switch.is_off: mic_mute
                     then:
-                      - voice_assistant.start:
+                      - if:
+                          condition:
+                            switch.is_on: greeter_mode
+                          then:
+                            - script.execute:
+                                id: visitor
+                                source: button
+                          else:
+                            - voice_assistant.start:
       # Long press: mute / unmute the microphone
       - timing:
           - ON for at least 1.5s
@@ -549,6 +654,34 @@ light:
             phase += 0.35f;
             const float level = 0.45f + 0.55f * fabsf(sinf(phase) * sinf(phase * 0.37f));
             it.all() = current_color * (uint8_t) (255 * level);
+      # A scan line moving down and up the ring, over a dim glow
+      - addressable_lambda:
+          name: Finger Scan
+          update_interval: 55ms
+          lambda: |-
+            static int step = 0;
+            const int n = it.size(), half = n / 2;
+            const int k = step <= half ? step : n - step;   // 0 .. half .. 1
+            it.all() = current_color * (uint8_t) 30;
+            it[k % n] = current_color;
+            it[(n - k) % n] = current_color;
+            step = (step + 1) % n;
+      # Two bright comets chasing round, speeding up, over a dim glow
+      - addressable_lambda:
+          name: Face Scan
+          update_interval: 16ms
+          lambda: |-
+            static float pos = 0, speed = 0.12f;
+            if (initial_run) { pos = 0; speed = 0.12f; }
+            const int n = it.size();
+            it.all() = current_color * (uint8_t) 40;
+            for (int c = 0; c < 2; c++) {
+              const int head = ((int) pos + c * n / 2) % n;
+              for (int t = 0; t < 3; t++) it[(head + n - t) % n] = current_color * (uint8_t) (255 >> (t * 2));
+            }
+            pos += speed;
+            if (pos >= n) pos -= n;
+            if (speed < 0.6f) speed += 0.0015f;
       - strobe:
           name: Flash
           colors:
@@ -562,6 +695,77 @@ light:
               duration: 150ms
 
 script:
+  # Tells Home Assistant someone is at the door. ha/front_door_greeter.yaml
+  # takes it from there. source: finger, button or doorbell.
+  - id: visitor
+    parameters:
+      source: string
+    then:
+      - homeassistant.event:
+          event: esphome.greeter_visitor
+          data:
+            source: !lambda return source;
+
+  # MAX30102 red LED: on = as bright as it goes (51 mA pulses, 800 per second,
+  # red only), off = chip shut down. Registers from the MAX30102 datasheet.
+  - id: pulse_ox_light
+    parameters:
+      light_on: bool
+    then:
+      - lambda: |-
+          auto &d = *id(pulse_ox);
+          if (light_on) {
+            d.write_byte(0x09, 0x40);   // MODE: reset
+            delay(2);
+            d.write_byte(0x08, 0x10);   // FIFO: no averaging, roll over
+            d.write_byte(0x0A, 0x73);   // SPO2 cfg: 16 uA range, 800 sps, 411 us pulses
+            d.write_byte(0x0C, 0xFF);   // LED1 (red) 51 mA
+            d.write_byte(0x0D, 0x00);   // LED2 (IR) off
+            d.write_byte(0x09, 0x02);   // MODE: heart-rate (red LED only)
+          } else {
+            uint8_t id_ = 0;
+            if (!d.read_byte(0xFF, &id_) || id_ != 0x15)
+              ESP_LOGW("pulse_ox", "MAX30102 not answering at 0x57 (part id 0x%02X)", id_);
+            d.write_byte(0x0C, 0x00);
+            d.write_byte(0x09, 0x80);   // MODE: shut down
+          }
+
+  # The fake fingerprint scan: red light through the finger, scan line on the
+  # ring, then hand over to Home Assistant.
+  - id: finger_scan
+    mode: single
+    then:
+      - script.execute:
+          id: pulse_ox_light
+          light_on: true
+      - light.turn_on:
+          id: ring_leds
+          effect: Finger Scan
+          red: 100%
+          green: 0%
+          blue: 0%
+          brightness: 80%
+      - light.turn_on:
+          id: hat_leds
+          effect: Fast pulse
+          red: 100%
+          green: 0%
+          blue: 0%
+      - delay: 2500ms
+      - lambda: |-
+          uint8_t b[3];
+          if (id(pulse_ox).read_bytes(0x07, b, 3))
+            id(finger_level).publish_state(((b[0] & 0x03) << 16) | (b[1] << 8) | b[2]);
+      - script.execute:
+          id: pulse_ox_light
+          light_on: false
+      - script.execute:
+          id: set_leds
+          phase: idle
+      - script.execute:
+          id: visitor
+          source: finger
+
   # Plays one of the audio_file sounds above as an announcement
   - id: play_sound
     parameters:
