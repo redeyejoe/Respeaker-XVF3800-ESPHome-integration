@@ -146,7 +146,7 @@ audio_dac:
                             # Wrong value = "Mic sample rate" far from 16000, no wake words.
     # mic_boost: 29       # dB: 0, 13, 20 or 29
     # mic_gain: 12        # dB: -17.25 .. 30
-    # speaker_volume: 0   # dB: -73 .. 6
+    speaker_volume: 6     # dB, -73 .. 6: max class-D level (outdoors needs it); turn down here if it distorts
 
 # The WM8960 is the clock master (its own 12.288 MHz oscillator), so both ESP
 # buses run as secondaries on the same two clock pins.
