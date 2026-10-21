@@ -175,6 +175,15 @@ microphone:
     sample_rate: 16000
     bits_per_sample: 32bit
     channel: left
+    # Counts what actually arrives, for the Mic sample rate / Mic peak sensors
+    on_data:
+      - lambda: |-
+          id(mic_bytes) += x.size();
+          const int32_t *s = reinterpret_cast<const int32_t *>(x.data());
+          for (size_t i = 0; i < x.size() / 4; i++) {
+            const int32_t v = abs(s[i] >> 16);
+            if (v > id(mic_peak)) id(mic_peak) = v;
+          }
 
 speaker:
   - platform: i2s_audio
@@ -472,6 +481,46 @@ sensor:
     entity_category: diagnostic
     accuracy_decimals: 0
     update_interval: never
+  # Mic diagnostics, updated every 5 s. Sample rate should read 16000: anything
+  # else means the HAT's clock isn't what the wm8960 component assumes, and wake
+  # words won't work. Peak is the loudest sample (0-100 %): it should jump
+  # when you talk, and sit near 0 in a quiet room.
+  - platform: template
+    id: mic_rate
+    name: Mic sample rate
+    icon: mdi:waveform
+    unit_of_measurement: Hz
+    entity_category: diagnostic
+    accuracy_decimals: 0
+    update_interval: never
+  - platform: template
+    id: mic_level
+    name: Mic peak
+    icon: mdi:microphone
+    unit_of_measurement: "%"
+    entity_category: diagnostic
+    accuracy_decimals: 1
+    update_interval: never
+
+globals:
+  - id: mic_bytes
+    type: uint32_t
+    initial_value: "0"
+  - id: mic_peak
+    type: int32_t
+    initial_value: "0"
+
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          const float rate = id(mic_bytes) / 4.0f / 5.0f;   // 32-bit mono samples per second
+          const float peak = id(mic_peak) * 100.0f / 32768.0f;
+          id(mic_bytes) = 0;
+          id(mic_peak) = 0;
+          ESP_LOGD("mic", "%.0f samples/s (want 16000), peak %.1f %%", rate, peak);
+          id(mic_rate).publish_state(rate);
+          id(mic_level).publish_state(peak);
 
 binary_sensor:
   # Optional doorbell push button between D10 and GND. With Home Assistant
