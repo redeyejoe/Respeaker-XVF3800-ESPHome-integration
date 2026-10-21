@@ -11,8 +11,10 @@ namespace wm8960 {
 
 static const char *const TAG = "wm8960";
 
-// The HAT has its own 12.288 MHz oscillator on MCLK (seeed-2mic-voicecard overlay: clock-frequency = <12288000>).
-// The codec is the I2S master: it makes BCLK and LRCLK from that clock, and the ESP32 follows as secondary.
+// The HAT has its own oscillator on MCLK: 12.288 MHz on Seeed's boards (seeed-2mic-voicecard overlay:
+// clock-frequency = <12288000>), 24 MHz on some clones such as the Keyestudio KS0314. SYSCLK must be 12.288 MHz:
+// taken straight from MCLK, or made by the PLL from 24 MHz.
+// The codec is the I2S master: it makes BCLK and LRCLK from SYSCLK, and the ESP32 follows as secondary.
 // 12.288 MHz / 256 / 3 = 16 kHz sample rate; 12.288 MHz / 12 = 1.024 MHz BCLK = 64 bit clocks per frame.
 // Mixer and gain values follow Seeed's wm8960_asound.state for this board.
 
@@ -38,8 +40,20 @@ void WM8960::setup() {
   this->write_reg_(WM8960_POWER1, 0x0FE);
   delay(100);
 
-  // Clocks: SYSCLK = MCLK (12.288 MHz), ADCDIV = DACDIV = /3 -> 16 kHz
-  this->write_reg_(WM8960_CLOCK1, (0b011 << 6) | (0b011 << 3));
+  // ADCDIV = DACDIV = /3 -> 16 kHz from a 12.288 MHz SYSCLK
+  uint16_t clock1 = (0b011 << 6) | (0b011 << 3);
+  if (this->mclk_hz_ == 24000000) {
+    // PLL (datasheet PLL table, 12 MHz -> 12.288 MHz row): MCLK / 2 (PLLPRESCALE) = 12 MHz,
+    // x 8.192 (N = 8, K = 0x3126E8, fractional) = 98.304 MHz, / 4 / 2 (SYSCLKDIV) = 12.288 MHz
+    this->write_reg_(WM8960_PLL1, (1 << 5) | (1 << 4) | 8);
+    this->write_reg_(WM8960_PLL2, 0x31);
+    this->write_reg_(WM8960_PLL3, 0x26);
+    this->write_reg_(WM8960_PLL4, 0xE8);
+    this->write_reg_(WM8960_POWER2, 0x001);  // PLL_EN, before switching SYSCLK over to it
+    delay(5);
+    clock1 |= (0b10 << 1) | 1;               // SYSCLKDIV = /2, CLKSEL = PLL
+  }
+  this->write_reg_(WM8960_CLOCK1, clock1);
   // DCLKDIV default (/16, class D switching clock), BCLKDIV = /12 -> 1.024 MHz
   this->write_reg_(WM8960_CLOCK2, 0x1C0 | 0b1001);
   // Master mode, 32-bit words, I2S format
@@ -50,7 +64,7 @@ void WM8960::setup() {
   this->write_reg_(WM8960_ADDCTL2, 1 << 2);
 
   // Power: DACL, DACR, LOUT1, ROUT1, SPKL, SPKR / LMIC, RMIC, LOMIX, ROMIX
-  this->write_reg_(WM8960_POWER2, 0x1F8);
+  this->write_reg_(WM8960_POWER2, 0x1F8 | (this->mclk_hz_ == 24000000 ? 0x001 : 0x000));
   this->write_reg_(WM8960_POWER3, 0x03C);
 
   // Mic inputs: LINPUT1 / RINPUT1 to the inverting PGA input, boost stage on, PGA into the boost mixer
@@ -87,7 +101,9 @@ void WM8960::setup() {
 void WM8960::dump_config() {
   ESP_LOGCONFIG(TAG, "WM8960:");
   LOG_I2C_DEVICE(this);
-  ESP_LOGCONFIG(TAG, "  Mic boost: %u (0/13/20/29 dB)\n  Mic gain: %.2f dB\n  Speaker level: %.0f dB", this->mic_boost_,
+  ESP_LOGCONFIG(TAG,
+                "  MCLK: %.3f MHz%s\n  Mic boost: %u (0/13/20/29 dB)\n  Mic gain: %.2f dB\n  Speaker level: %.0f dB",
+                this->mclk_hz_ / 1e6f, this->mclk_hz_ == 24000000 ? " (through the PLL)" : "", this->mic_boost_,
                 this->mic_gain_db_, this->speaker_db_);
   if (this->is_failed()) {
     ESP_LOGE(TAG, "  No answer at this address. Check SDA/SCL and that the HAT has 3.3 V and 5 V.");

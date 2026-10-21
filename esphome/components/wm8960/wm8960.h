@@ -34,6 +34,10 @@ static const uint8_t WM8960_ROUT2 = 0x29;       // R41 right speaker volume
 static const uint8_t WM8960_POWER3 = 0x2F;      // R47 power management 3
 static const uint8_t WM8960_CLASSD1 = 0x31;     // R49 class D control 1
 static const uint8_t WM8960_CLASSD3 = 0x33;     // R51 class D control 3
+static const uint8_t WM8960_PLL1 = 0x34;        // R52 PLL N (SDM, PLLPRESCALE, PLLN)
+static const uint8_t WM8960_PLL2 = 0x35;        // R53 PLL K [23:16]
+static const uint8_t WM8960_PLL3 = 0x36;        // R54 PLL K [15:8]
+static const uint8_t WM8960_PLL4 = 0x37;        // R55 PLL K [7:0]
 
 class WM8960 : public audio_dac::AudioDac, public Component, public i2c::I2CDevice {
  public:
@@ -50,6 +54,7 @@ class WM8960 : public audio_dac::AudioDac, public Component, public i2c::I2CDevi
   void set_mic_boost(uint8_t boost) { this->mic_boost_ = boost; }
   void set_mic_gain_db(float db) { this->mic_gain_db_ = db; }
   void set_speaker_db(float db) { this->speaker_db_ = db; }
+  void set_mclk_hz(uint32_t hz) { this->mclk_hz_ = hz; }
 
  protected:
   // The WM8960 takes 7-bit register addresses with 9-bit values, packed into two bytes.
@@ -59,6 +64,7 @@ class WM8960 : public audio_dac::AudioDac, public Component, public i2c::I2CDevi
   uint8_t mic_boost_{3};
   float mic_gain_db_{12.0f};
   float speaker_db_{0.0f};
+  uint32_t mclk_hz_{12288000};
   float volume_{0.5f};
 };
 

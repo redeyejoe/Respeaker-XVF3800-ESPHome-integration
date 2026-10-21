@@ -110,6 +110,9 @@ audio_dac:
   - platform: wm8960
     id: wm8960_dac
     i2c_id: hat_i2c
+    # mclk_frequency: 24MHz   # Keyestudio KS0314 clones have a 24 MHz oscillator (default
+                              # 12.288MHz = Seeed). Symptom of the wrong one: no wake words and
+                              # constant "ring buffer" warnings from micro_wake_word.
     # mic_boost: 29       # dB: 0, 13, 20 or 29
     # mic_gain: 12        # dB: -17.25 .. 30
     # speaker_volume: 0   # dB: -73 .. 6

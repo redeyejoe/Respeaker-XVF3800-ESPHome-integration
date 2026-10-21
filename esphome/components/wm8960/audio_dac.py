@@ -10,12 +10,24 @@ DEPENDENCIES = ["i2c"]
 CONF_MIC_BOOST = "mic_boost"
 CONF_MIC_GAIN = "mic_gain"
 CONF_SPEAKER_VOLUME = "speaker_volume"
+CONF_MCLK_FREQUENCY = "mclk_frequency"
 
 wm8960_ns = cg.esphome_ns.namespace("wm8960")
 WM8960 = wm8960_ns.class_("WM8960", AudioDac, cg.Component, i2c.I2CDevice)
 
 # Mic boost stage in front of the PGA: 0, 13, 20 or 29 dB (Seeed ships 29 dB)
 MIC_BOOST = {0: 0, 13: 1, 20: 2, 29: 3}
+
+# The HAT's oscillator on MCLK. Seeed's boards use 12.288 MHz (used directly); some
+# clones (e.g. Keyestudio KS0314) fit 24 MHz, which goes through the codec's PLL.
+MCLK_FREQUENCIES = (12288000, 24000000)
+
+
+def validate_mclk(value):
+    value = int(round(cv.frequency(value)))
+    if value not in MCLK_FREQUENCIES:
+        raise cv.Invalid("mclk_frequency must be 12.288MHz or 24MHz")
+    return value
 
 CONFIG_SCHEMA = (
     cv.Schema(
@@ -26,6 +38,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_MIC_GAIN, default=12.0): cv.float_range(min=-17.25, max=30.0),
             # Class-D speaker driver level, -73 .. +6 dB (the volume control works on the DAC in front of it)
             cv.Optional(CONF_SPEAKER_VOLUME, default=0.0): cv.float_range(min=-73.0, max=6.0),
+            cv.Optional(CONF_MCLK_FREQUENCY, default="12.288MHz"): validate_mclk,
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -40,3 +53,4 @@ async def to_code(config):
     cg.add(var.set_mic_boost(MIC_BOOST[config[CONF_MIC_BOOST]]))
     cg.add(var.set_mic_gain_db(config[CONF_MIC_GAIN]))
     cg.add(var.set_speaker_db(config[CONF_SPEAKER_VOLUME]))
+    cg.add(var.set_mclk_hz(config[CONF_MCLK_FREQUENCY]))
