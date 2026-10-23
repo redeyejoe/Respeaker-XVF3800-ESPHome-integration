@@ -674,12 +674,11 @@ light:
     id: ring_leds
     name: Ring
     pin: GPIO3
-    # RGB ring (Adafruit 1643, WS2812): WS2812 + GRB.
-    # RGBW ring (Adafruit 2851/2852/2853, SK6812 with a white chip in each LED):
-    #   chipset: SK6812 and channel_colors: GRBW - with the RGB settings only
-    #   9 of the 12 LEDs light, because each RGBW LED takes 4 bytes instead of 3.
-    chipset: WS2812
-    channel_colors: GRB
+    # RGBW ring (Adafruit 2851/2852/2853, SK6812 with a white chip in each LED).
+    # For the RGB ring (Adafruit 1643) use chipset: WS2812 and channel_colors: GRB.
+    # Wrong one = only 9 of the 12 LEDs light (RGBW takes 4 bytes per LED, RGB 3).
+    chipset: SK6812
+    channel_colors: GRBW
     num_leds: 12
     max_refresh_rate: 16ms
     default_transition_length: 150ms
@@ -740,6 +739,18 @@ light:
             pos += speed;
             if (pos >= n) pos -= n;
             if (speed < 0.6f) speed += 0.0015f;
+      # Fast spinning rainbow with white sparkles: pulls everyone's eyes to the lens
+      - addressable_lambda:
+          name: Dazzle
+          update_interval: 20ms
+          lambda: |-
+            static uint8_t hue = 0;
+            const int n = it.size();
+            for (int i = 0; i < n; i++)
+              it[i] = ESPHSVColor((uint8_t) (hue + i * 256 / n), 255, 255).to_rgb();
+            if (random_uint32() % 3 == 0)
+              it[random_uint32() % n] = Color(255, 255, 255, 255);
+            hue += 9;
       - strobe:
           name: Flash
           colors:

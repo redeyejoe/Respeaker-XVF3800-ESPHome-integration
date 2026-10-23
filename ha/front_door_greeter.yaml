@@ -1,16 +1,22 @@
 # =============================================================================
 # Front door greeter: Home Assistant side
 #
-# Works with config/respeaker-2mic-xiao.yaml. A visitor touches the finger pad,
-# presses the button or rings the doorbell, and then:
-#   1. finger pad only: the box has already done its red "fingerprint scan";
-#      it now says "Fingerprint scan complete."
-#   2. the camera ring runs the face scan, HA grabs a snapshot from the
-#      doorbell camera, and the box says "Facial scan complete."
-#   3. it asks "What can I do for you?" and the AI agent takes over:
-#      it asks who they are and who they are looking for
-#   4. when the conversation goes quiet, the whole transcript and the snapshot
-#      are sent to your phone and written to the logbook
+# Works with config/respeaker-2mic-xiao.yaml. Someone presses the doorbell (or
+# the box's button, or touches the finger pad) and:
+#   1. finger pad only: "Fingerprint scan complete."
+#   2. "Hello, how can I help you?"            -> listens, keeps the answer
+#   3. "And who should I tell them is here?"   -> listens, keeps the name
+#   4. "I will see if anyone is here and available to answer the door. Please wait."
+#   5. Whole home audio (Google speaker group): "Someone is at the front door.
+#      It's <name>. They said: <reason>."  The name comes from, in order:
+#      face recognition (when wired up), a known phone that just joined the
+#      Wi-Fi, or what they said.
+#   6. Rainbow "Dazzle" on the camera ring for a few seconds while HA takes a
+#      snapshot (everyone looks at the lights = looks at the lens).
+#   7. "Facial scan complete. Wi-Fi identified, and logged with your profile."
+#   8. Your phone gets the summary + snapshot, and it goes in the logbook.
+#
+# Needs Home Assistant 2025.7 or newer (assist_satellite.ask_question).
 #
 # Install: put this file in /config/packages/ and make sure configuration.yaml has
 #   homeassistant:
@@ -20,17 +26,15 @@
 # Before it works:
 #   - Settings > Devices > ESPHome > Voice Box > Configure: turn on
 #     "Allow the device to perform Home Assistant actions".
-#   - Check the entity ids below against yours (Settings > Entities):
-#       assist_satellite.voice_box_assist_satellite   the box (appears twice)
-#       light.voice_box_ring                          the camera ring
-#       camera.front_door                             your doorbell camera
-#       notify.mobile_app_your_phone                  your phone (companion app)
-#   - Give the box its own pipeline and agent (see the prompt at the bottom).
+#   - Check the entity ids in the automation's variables block (Settings >
+#     Entities), and the satellite id in script.greeter_say.
+#   - The Voice Box firmware needs the "Dazzle" ring effect (current
+#     config/respeaker-2mic-xiao.yaml has it).
 # =============================================================================
 
 template:
-  # Everything said during a visit, one line per turn. Kept in the "log"
-  # attribute because a state is limited to 255 characters.
+  # Everything said during a visit, one line per turn ("log" attribute; a state
+  # is limited to 255 characters). The box sends what the visitor says.
   - triggers:
       - trigger: event
         event_type: esphome.greeter_transcript
@@ -49,10 +53,41 @@ template:
               {{ this.attributes.get('log', '') ~ trigger.event.data.get('who', '?') ~ ': ' ~ trigger.event.data.get('text', '') ~ '\n' }}
             {%- endif -%}
 
+# Phones of people who visit (from your router / UniFi / nmap integration).
+# A phone in this group that joined the Wi-Fi in the last 10 minutes counts as
+# "Wi-Fi identified". Add your device_tracker entities, then reload groups.
+# group:
+#   greeter_known_phones:
+#     name: Greeter known phones
+#     entities:
+#       - device_tracker.johns_phone
+#       - device_tracker.moms_iphone
+
+script:
+  # One line said by the greeter box, also written to the transcript
+  greeter_say:
+    alias: Greeter say
+    mode: queued
+    fields:
+      message:
+        selector:
+          text:
+    sequence:
+      - action: assist_satellite.announce
+        target:
+          entity_id: assist_satellite.voice_box_assist_satellite
+        data:
+          message: "{{ message }}"
+          preannounce: false
+      - event: esphome.greeter_transcript
+        event_data:
+          who: Greeter
+          text: "{{ message }}"
+
 automation:
   - id: front_door_greeter
     alias: Front door greeter
-    description: Scan theatre, conversation and summary when someone is at the front door
+    description: Greets the visitor, asks who they are, announces them on the whole home audio
     mode: single
     max_exceeded: silent
     triggers:
@@ -61,7 +96,10 @@ automation:
     variables:
       satellite: assist_satellite.voice_box_assist_satellite
       ring: light.voice_box_ring
-      camera: camera.front_door
+      camera: camera.doorbell                        # the Pi doorbell camera in HA / Frigate
+      house_speakers: media_player.whole_home_audio  # your Google speaker group
+      house_tts: tts.piper                           # the TTS engine for the house announcement
+      face_sensor: sensor.greeter_face_name          # optional: name from face recognition
       snapshot: /config/www/front_door_visitor.jpg
       source: "{{ trigger.event.data.source | default('button') }}"
       how: >-
@@ -71,89 +109,113 @@ automation:
     actions:
       - event: greeter_transcript_reset
 
-      # 1. the fingerprint "result" (the box did the scan before sending the event)
       - if: "{{ source == 'finger' }}"
         then:
-          - action: assist_satellite.announce
-            target:
-              entity_id: "{{ satellite }}"
+          - action: script.greeter_say
             data:
               message: Fingerprint scan complete.
-              preannounce: false
-          - event: esphome.greeter_transcript
-            event_data:
-              who: Greeter
-              text: Fingerprint scan complete.
 
-      # 2. face scan: the ring pulls their eyes to the lens, then a snapshot
+      # --- what do they want, and who are they ---
+      - event: esphome.greeter_transcript
+        event_data:
+          who: Greeter
+          text: Hello, how can I help you?
+      - action: assist_satellite.ask_question
+        continue_on_error: true
+        data:
+          entity_id: "{{ satellite }}"
+          question: Hello, how can I help you?
+          preannounce: false
+        response_variable: help_answer
+      - event: esphome.greeter_transcript
+        event_data:
+          who: Greeter
+          text: And who should I tell them is here?
+      - action: assist_satellite.ask_question
+        continue_on_error: true
+        data:
+          entity_id: "{{ satellite }}"
+          question: And who should I tell them is here?
+          preannounce: false
+          answers:
+            - id: name
+              sentences:
+                - "[it's|it is|this is|i'm|i am|my name is|tell them] {name}"
+        response_variable: name_answer
+      - action: script.greeter_say
+        data:
+          message: I will see if anyone is here and available to answer the door. Please wait.
+
+      # --- work out who it is ---
+      - variables:
+          said_help: "{{ (help_answer.sentence if help_answer is defined and help_answer else '') | trim }}"
+          said_name: >-
+            {%- if name_answer is defined and name_answer -%}
+              {{ (name_answer.slots.name if name_answer.id == 'name' and name_answer.slots.name is defined else name_answer.sentence) | trim }}
+            {%- endif -%}
+          face_name: >-
+            {%- set f = states(face_sensor) -%}
+            {{ '' if f in ['unknown', 'unavailable', 'none', 'None', ''] else f }}
+          wifi_names: >-
+            {%- set ns = namespace(n=[]) -%}
+            {%- for e in expand('group.greeter_known_phones') if e.state == 'home' and (now() - e.last_changed).total_seconds() < 600 -%}
+              {%- set ns.n = ns.n + [e.name | regex_replace("(?i)['’]?s? ?(phone|iphone|pixel|galaxy)$", '')] -%}
+            {%- endfor -%}
+            {{ ns.n | join(' and ') }}
+          who: "{{ face_name or wifi_names or said_name }}"
+          house_message: >-
+            Someone is at the front door.
+            {%- if who %} It's {{ who }}.{% endif %}
+            {%- if said_help %} They said: {{ said_help }}.{% endif %}
+
+      # --- tell the house ---
+      - action: tts.speak
+        continue_on_error: true
+        target:
+          entity_id: "{{ house_tts }}"
+        data:
+          media_player_entity_id: "{{ house_speakers }}"
+          message: "{{ house_message }}"
+
+      # --- dazzle them into looking at the camera, grab the picture ---
       - action: light.turn_on
         target:
           entity_id: "{{ ring }}"
         data:
-          effect: Face Scan
-          rgb_color: [255, 255, 255]
+          effect: Dazzle
           brightness_pct: 100
-      - delay: 2.5
+      - delay: 2
       - action: camera.snapshot
         continue_on_error: true
         target:
           entity_id: "{{ camera }}"
         data:
           filename: "{{ snapshot }}"
+      - delay: 2
       - action: light.turn_on
         target:
           entity_id: "{{ ring }}"
         data:
           effect: None
-          rgb_color: [255, 255, 255]
-          brightness_pct: 100
-      - action: assist_satellite.announce
-        target:
-          entity_id: "{{ satellite }}"
+          rgb_color: [0, 50, 255]
+          brightness_pct: 8
+      - action: script.greeter_say
         data:
-          message: Facial scan complete.
-          preannounce: false
-      - event: esphome.greeter_transcript
-        event_data:
-          who: Greeter
-          text: Facial scan complete. What can I do for you?
+          message: Facial scan complete. Wi-Fi identified, and logged with your profile.
 
-      # 3. hand over to the AI agent
-      - action: assist_satellite.start_conversation
-        target:
-          entity_id: "{{ satellite }}"
-        data:
-          start_message: What can I do for you?
-          preannounce: false
-          extra_system_prompt: >-
-            A visitor at the front door just {{ how }}. You have already told them
-            their fingerprint and face were scanned and asked "What can I do for you?".
-            Find out their name, who they are looking for, and why they are here.
-
-      # 4. wait for the conversation to finish: it starts listening, then stays idle 15 s
-      - wait_for_trigger:
-          - trigger: state
-            entity_id: assist_satellite.voice_box_assist_satellite
-            to: listening
-        timeout: "00:00:10"
-      - wait_for_trigger:
-          - trigger: state
-            entity_id: assist_satellite.voice_box_assist_satellite
-            to: idle
-            for: "00:00:15"
-        timeout: "00:05:00"
-
+      # --- tell me ---
+      - delay: 3   # lets the last transcript line arrive
       - variables:
           transcript: "{{ state_attr('sensor.front_door_transcript', 'log') or '(nothing said)' }}"
       - action: logbook.log
         data:
           name: Front door
           entity_id: "{{ satellite }}"
-          message: "{{ started }}, visitor {{ how }}. {{ transcript | replace('\n', ' | ') }}"
+          message: "{{ started }}: {{ who or 'unknown visitor' }} {{ how }}. {{ transcript | replace('\n', ' | ') }}"
       - action: notify.mobile_app_your_phone
         data:
-          title: "Front door, {{ started }}"
-          message: "Visitor {{ how }}.\n{{ transcript }}"
+          title: "Front door: {{ who or 'someone' }} ({{ started }})"
+          message: "{{ house_message }}\n\n{{ transcript }}"
           data:
             image: "/local/front_door_visitor.jpg?v={{ now().timestamp() | int }}"
             url: /history
@@ -161,28 +223,4 @@ automation:
       # - action: notify.twilio_sms
       #   data:
       #     target: "+1XXXXXXXXXX"
-      #     message: "Front door {{ started }}: visitor {{ how }}.\n{{ transcript }}"
-
-# =============================================================================
-# The agent (Settings > Devices & services > Ollama > Add conversation agent)
-#   Name: Front door
-#   Control Home Assistant: No control   <- strangers talk to this one:
-#                                           never let it reach locks or lights
-#   Instructions:
-#
-#   You are the front door greeter at this house: a polite security system with
-#   a calm, slightly futuristic manner, talking to whoever is at the door.
-#   Keep every reply to one or two short sentences of plain speech, no lists,
-#   no emoji. Find out the visitor's name, who they are looking for and why
-#   they are here, one question at a time, and end each reply with a question
-#   until you know all three. Never say whether anyone is home, never promise
-#   that someone will come to the door, and never give out names, schedules or
-#   anything else about the household. If they are delivering something, ask
-#   them to leave it by the door. Once you know who they are, who they want and
-#   why, thank them, say their message has been passed on, and do not ask
-#   anything else.
-#
-# Then Settings > Voice assistants > Add assistant: "Front door", that agent,
-# your Piper voice. On the Voice Box device page set Assistant to "Front door".
-# Ending a reply with a question is what keeps the box listening for the answer.
-# =============================================================================
+      #     message: "Front door {{ started }}: {{ house_message }}"
