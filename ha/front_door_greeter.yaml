@@ -14,7 +14,8 @@
 #   6. Rainbow "Dazzle" on the camera ring for a few seconds while HA takes a
 #      snapshot (everyone looks at the lights = looks at the lens).
 #   7. "Facial scan complete. Wi-Fi identified, and logged with your profile."
-#   8. Your phone gets the summary + snapshot, and it goes in the logbook.
+#   8. Your phone gets the summary (the snapshot is saved to
+#      /config/www/front_door_visitor.jpg), and it goes in the logbook.
 #
 # Needs Home Assistant 2025.7 or newer (assist_satellite.ask_question).
 #
@@ -96,7 +97,7 @@ automation:
     variables:
       satellite: assist_satellite.voice_box_assist_satellite
       ring: light.voice_box_ring
-      camera: camera.doorbell                        # the Pi doorbell camera in HA / Frigate
+      camera: camera.doorbell_2                      # the Pi doorbell camera (Frigate)
       house_speakers: media_player.home_audio_5      # your Google speaker group
       house_tts: tts.piper                           # the TTS engine for the house announcement
       face_sensor: sensor.greeter_face_name          # optional: name from face recognition
@@ -225,13 +226,12 @@ automation:
           name: Front door
           entity_id: "{{ satellite }}"
           message: "{{ started }}: {{ who or 'unknown visitor' }} {{ how }}. {{ transcript | replace('\n', ' | ') }}"
-      - action: notify.mobile_app_your_phone
+      - action: notify.send_message
+        target:
+          entity_id: notify.sm_s546vl                # Doug's phone (Companion app)
         data:
           title: "Front door: {{ who or 'someone' }} ({{ started }})"
           message: "{{ house_message }}\n\n{{ transcript }}"
-          data:
-            image: "/local/front_door_visitor.jpg?v={{ now().timestamp() | int }}"
-            url: /history
       # For a real text message instead, set up the Twilio SMS integration and use:
       # - action: notify.twilio_sms
       #   data:
