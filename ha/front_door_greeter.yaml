@@ -1,8 +1,10 @@
 # =============================================================================
-# Front door greeter: Home Assistant side          PACKAGE VERSION 1.5
+# Front door greeter: Home Assistant side          PACKAGE VERSION 1.6
 # (shows in HA as sensor.front_door_greeter_version - bump both together)
 #
 # Changes
+#   1.6  2026-10-23  messages also go out through Doug's existing notify.gdoor_notify
+#                    (email to Hotmail + text via the Verizon email gateway)
 #   1.5  2026-10-23  "Would you like to leave a message?" after a minute with no
 #                    answer or a second press; message text to phone (+ email)
 #   1.4  2026-10-23  mode: restart; a failed line no longer stops the routine;
@@ -32,7 +34,7 @@
 #      /config/www/front_door_visitor.jpg), and it goes in the logbook.
 #   9. If nobody answers within a minute, or they press the button again:
 #      "It looks like no one is available right now. Would you like to leave a
-#      message?" -> records what they say as text -> phone (+ email if set up).
+#      message?" -> records what they say as text -> phone app + email + text.
 #
 # Needs Home Assistant 2025.7 or newer (assist_satellite.ask_question).
 #
@@ -55,7 +57,7 @@ template:
       - name: Front door greeter version
         unique_id: front_door_greeter_version
         icon: mdi:tag-outline
-        state: "1.5"
+        state: "1.6"
 
   # Everything said during a visit, one line per turn ("log" attribute; a state
   # is limited to 255 characters). The box sends what the visitor says.
@@ -104,21 +106,8 @@ input_text:
     name: Front door visitor
     max: 255
 
-# Email (optional): the message also goes to notify.email_doug once that exists.
-# With a Gmail app password (Google account > Security > App passwords), add to
-# configuration.yaml (or set up the SMTP integration from the UI if your version
-# offers it there, and use the notify action name it creates):
-# notify:
-#   - name: email_doug
-#     platform: smtp
-#     server: smtp.gmail.com
-#     port: 587
-#     encryption: starttls
-#     sender: thestickflicker@gmail.com
-#     username: thestickflicker@gmail.com
-#     password: !secret gmail_app_password
-#     recipient: thestickflicker@gmail.com
-#     sender_name: Front Door
+# Email + text: uses the SMTP notifier already in configuration.yaml
+# (notify.gdoor_notify -> redeye_joe@hotmail.com and the phone's vtext address).
 
 script:
   # Nobody came: offer to take a message, turn it into text, send it to Doug
@@ -185,7 +174,7 @@ script:
             data:
               title: "Message from {{ visitor }} at the front door ({{ when }})"
               message: "{{ message_text or '(they said yes, but nothing was heard)' }}"
-          - action: notify.email_doug
+          - action: notify.gdoor_notify               # email + text (existing SMTP notifier)
             continue_on_error: true
             data:
               title: "Front door message from {{ visitor }} ({{ when }})"
