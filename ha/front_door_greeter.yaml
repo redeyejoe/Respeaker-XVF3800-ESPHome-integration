@@ -14,6 +14,7 @@
 #   6. Rainbow "Dazzle" on the camera ring for a few seconds while HA takes a
 #      snapshot (everyone looks at the lights = looks at the lens).
 #   7. "Facial scan complete. Wi-Fi identified, and logged with your profile."
+#      "I have notified the homeowners. If they are available, they will be with you shortly."
 #   8. Your phone gets the summary (the snapshot is saved to
 #      /config/www/front_door_visitor.jpg), and it goes in the logbook.
 #
@@ -142,9 +143,11 @@ automation:
               sentences:
                 - "[it's|it is|this is|i'm|i am|my name is|tell them] {name}"
         response_variable: name_answer
+      - delay: 1   # let the satellite finish listening before it talks again
       - action: script.greeter_say
+        continue_on_error: true
         data:
-          message: I will see if anyone is here and available to answer the door. Please wait.
+          message: Thank you. I will see if anyone is here and available to answer the door. Please wait.
 
       # --- work out who it is ---
       - variables:
@@ -213,8 +216,14 @@ automation:
             target:
               entity_id: "{{ ring }}"
       - action: script.greeter_say
+        continue_on_error: true
         data:
           message: Facial scan complete. Wi-Fi identified, and logged with your profile.
+      - delay: 1
+      - action: script.greeter_say
+        continue_on_error: true
+        data:
+          message: I have notified the homeowners. If they are available, they will be with you shortly.
 
       # --- tell me ---
       - delay: 3   # lets the last transcript line arrive
