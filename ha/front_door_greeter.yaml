@@ -89,8 +89,7 @@ automation:
   - id: front_door_greeter
     alias: Front door greeter
     description: Greets the visitor, asks who they are, announces them on the whole home audio
-    mode: single
-    max_exceeded: silent
+    mode: restart          # a new press starts over (a stuck run can never block it)
     triggers:
       - trigger: event
         event_type: esphome.greeter_visitor
