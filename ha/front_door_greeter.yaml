@@ -97,7 +97,7 @@ automation:
       satellite: assist_satellite.voice_box_assist_satellite
       ring: light.voice_box_ring
       camera: camera.doorbell                        # the Pi doorbell camera in HA / Frigate
-      house_speakers: media_player.whole_home_audio  # your Google speaker group
+      house_speakers: media_player.home_audio_5      # your Google speaker group
       house_tts: tts.piper                           # the TTS engine for the house announcement
       face_sensor: sensor.greeter_face_name          # optional: name from face recognition
       snapshot: /config/www/front_door_visitor.jpg
