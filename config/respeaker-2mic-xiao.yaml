@@ -2,6 +2,20 @@
 # ReSpeaker 2-Mic Pi HAT v1 (Keyestudio KS0314 / Seeed v1, WM8960 codec)
 # on a Seeed XIAO ESP32S3 as a stand-alone Home Assistant voice satellite.
 #
+# FIRMWARE VERSION 1.9 (esphome: project: version below - bump both together;
+# Home Assistant shows it on the Voice Box device page)
+#   1.9  2026-10-23  ring dark when idle (white chip off), HAT LEDs off when idle
+#   1.8  2026-10-23  Dazzle ring effect; RGBW ring (SK6812, GRBW) by default
+#   1.7  2026-10-21  speaker_volume +6 dB
+#   1.6  2026-10-21  mclk_frequency: 24MHz (KS0314 oscillator, through the PLL)
+#   1.5  2026-10-21  Mic sample rate / Mic peak diagnostic sensors
+#   1.4  2026-10-21  wiring notes: 3.3 V on pin 17 too (not joined to pin 1)
+#   1.3  2026-10-21  greeter: finger pad + MAX30102, scan effects, HA events,
+#                    transcript events, Greeter mode switch
+#   1.2  2026-10-21  Gimp wake words removed (front door box)
+#   1.1  2026-10-20  NeoPixel ring, voice box secrets
+#   1.0  2026-10-19  first version
+#
 # Paste into a new device in ESPHome Builder. Wi-Fi, API and OTA secrets come
 # from ESPHome Builder's own secrets.yaml.
 #
@@ -66,7 +80,7 @@ esphome:
   name_add_mac_suffix: false
   project:
     name: redeyejoe.ReSpeaker 2-Mic XIAO ESP32S3
-    version: "1.0"
+    version: "1.9"
   on_boot:
     priority: 375
     then:
