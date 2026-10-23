@@ -17,6 +17,9 @@
 #      "I have notified the homeowners. If they are available, they will be with you shortly."
 #   8. Your phone gets the summary (the snapshot is saved to
 #      /config/www/front_door_visitor.jpg), and it goes in the logbook.
+#   9. If nobody answers within a minute, or they press the button again:
+#      "It looks like no one is available right now. Would you like to leave a
+#      message?" -> records what they say as text -> phone (+ email if set up).
 #
 # Needs Home Assistant 2025.7 or newer (assist_satellite.ask_question).
 #
@@ -65,7 +68,120 @@ template:
 #       - device_tracker.johns_phone
 #       - device_tracker.moms_iphone
 
+# A visit is "waiting" for a minute after the greeter finishes. A second press in
+# that minute (or the minute running out) offers to take a message. Turn
+# "Front door answered" on (dashboard button, or an automation on your door
+# sensor) to tell it someone came to the door, and it won't offer.
+input_boolean:
+  front_door_waiting:
+    name: Front door waiting for an answer
+    icon: mdi:door-closed-lock
+  front_door_answered:
+    name: Front door answered
+    icon: mdi:door-open
+
+input_text:
+  front_door_visitor:
+    name: Front door visitor
+    max: 255
+
+# Email (optional): the message also goes to notify.email_doug once that exists.
+# With a Gmail app password (Google account > Security > App passwords), add to
+# configuration.yaml (or set up the SMTP integration from the UI if your version
+# offers it there, and use the notify action name it creates):
+# notify:
+#   - name: email_doug
+#     platform: smtp
+#     server: smtp.gmail.com
+#     port: 587
+#     encryption: starttls
+#     sender: thestickflicker@gmail.com
+#     username: thestickflicker@gmail.com
+#     password: !secret gmail_app_password
+#     recipient: thestickflicker@gmail.com
+#     sender_name: Front Door
+
 script:
+  # Nobody came: offer to take a message, turn it into text, send it to Doug
+  greeter_take_message:
+    alias: Greeter take a message
+    mode: single
+    max_exceeded: silent
+    sequence:
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.front_door_waiting
+      - variables:
+          satellite: assist_satellite.voice_box_assist_satellite
+          visitor: >-
+            {%- set v = states('input_text.front_door_visitor') -%}
+            {{ 'someone' if v in ['unknown', 'unavailable', ''] else v }}
+          when: "{{ now().strftime('%-I:%M %p') }}"
+      - event: esphome.greeter_transcript
+        event_data:
+          who: Greeter
+          text: It looks like no one is available right now. Would you like to leave a message?
+      - action: assist_satellite.ask_question
+        continue_on_error: true
+        data:
+          entity_id: "{{ satellite }}"
+          question: It looks like no one is available right now. Would you like to leave a message?
+          preannounce: false
+          answers:
+            - id: "yes"
+              sentences:
+                - "yes [please]"
+                - "(yeah|yep|sure|okay|ok)"
+                - "[yes] I would [like to]"
+            - id: "no"
+              sentences:
+                - "no [thanks|thank you]"
+                - "(nope|not now|that's okay|that's ok|I'm good|no I'm good)"
+        response_variable: offer
+      - delay: 1
+      - if: "{{ offer is defined and offer and offer.id == 'yes' }}"
+        then:
+          - event: esphome.greeter_transcript
+            event_data:
+              who: Greeter
+              text: Okay, please leave your message now. I'm listening.
+          - action: assist_satellite.ask_question
+            continue_on_error: true
+            data:
+              entity_id: "{{ satellite }}"
+              question: Okay, please leave your message now. I'm listening.
+              preannounce: false
+            response_variable: msg
+          - variables:
+              message_text: "{{ (msg.sentence if msg is defined and msg else '') | trim }}"
+          - delay: 1
+          - action: script.greeter_say
+            continue_on_error: true
+            data:
+              message: Thank you. Your message has been delivered. Have a nice day.
+          - action: notify.send_message
+            continue_on_error: true
+            target:
+              entity_id: notify.sm_s546vl                # Doug's phone (Companion app)
+            data:
+              title: "Message from {{ visitor }} at the front door ({{ when }})"
+              message: "{{ message_text or '(they said yes, but nothing was heard)' }}"
+          - action: notify.email_doug
+            continue_on_error: true
+            data:
+              title: "Front door message from {{ visitor }} ({{ when }})"
+              message: "{{ visitor }} left a message at the front door at {{ when }}:\n\n{{ message_text or '(nothing was heard)' }}"
+          - action: logbook.log
+            data:
+              name: Front door
+              entity_id: "{{ satellite }}"
+              message: "Message from {{ visitor }}: {{ message_text or '(nothing heard)' }}"
+        else:
+          - action: script.greeter_say
+            continue_on_error: true
+            data:
+              message: Okay. Have a nice day.
+
   # One line said by the greeter box, also written to the transcript
   greeter_say:
     alias: Greeter say
@@ -108,6 +224,17 @@ automation:
             'button': 'pressed the button'}.get(source, source) }}
       started: "{{ now().strftime('%-I:%M %p') }}"
     actions:
+      # second press while a visit is still waiting for an answer: offer to take a message
+      - if:
+          - condition: state
+            entity_id: input_boolean.front_door_waiting
+            state: "on"
+          - condition: template
+            value_template: "{{ (now() - states.input_boolean.front_door_waiting.last_changed).total_seconds() < 180 }}"
+        then:
+          - action: script.greeter_take_message
+          - stop: Second press - took a message
+
       - event: greeter_transcript_reset
 
       - if: "{{ source == 'finger' }}"
@@ -235,11 +362,37 @@ automation:
           entity_id: "{{ satellite }}"
           message: "{{ started }}: {{ who or 'unknown visitor' }} {{ how }}. {{ transcript | replace('\n', ' | ') }}"
       - action: notify.send_message
+        continue_on_error: true
         target:
           entity_id: notify.sm_s546vl                # Doug's phone (Companion app)
         data:
           title: "Front door: {{ who or 'someone' }} ({{ started }})"
           message: "{{ house_message }}\n\n{{ transcript }}"
+
+      # --- nobody answers within a minute (or they press again): offer to take a message ---
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.front_door_visitor
+        data:
+          value: "{{ (who or 'someone')[:250] }}"
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.front_door_answered
+      - action: input_boolean.turn_on
+        target:
+          entity_id: input_boolean.front_door_waiting
+      - wait_for_trigger:
+          - trigger: state
+            entity_id: input_boolean.front_door_answered
+            to: "on"
+        timeout: "00:01:00"
+      - if: "{{ wait.trigger is none }}"
+        then:
+          - action: script.greeter_take_message
+      - action: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.front_door_waiting
+
       # For a real text message instead, set up the Twilio SMS integration and use:
       # - action: notify.twilio_sms
       #   data:
