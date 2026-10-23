@@ -1,8 +1,9 @@
 # =============================================================================
-# Front door greeter: Home Assistant side          PACKAGE VERSION 1.6
+# Front door greeter: Home Assistant side          PACKAGE VERSION 1.7
 # (shows in HA as sensor.front_door_greeter_version - bump both together)
 #
 # Changes
+#   1.7  2026-10-23  own email/text notifier: notify.front_door_notify
 #   1.6  2026-10-23  messages also go out through Doug's existing notify.gdoor_notify
 #                    (email to Hotmail + text via the Verizon email gateway)
 #   1.5  2026-10-23  "Would you like to leave a message?" after a minute with no
@@ -57,7 +58,7 @@ template:
       - name: Front door greeter version
         unique_id: front_door_greeter_version
         icon: mdi:tag-outline
-        state: "1.6"
+        state: "1.7"
 
   # Everything said during a visit, one line per turn ("log" attribute; a state
   # is limited to 255 characters). The box sends what the visitor says.
@@ -106,8 +107,8 @@ input_text:
     name: Front door visitor
     max: 255
 
-# Email + text: uses the SMTP notifier already in configuration.yaml
-# (notify.gdoor_notify -> redeye_joe@hotmail.com and the phone's vtext address).
+# Email + text: the front_door_notify SMTP notifier in configuration.yaml
+# (Gmail app password in secrets.yaml -> redeye_joe@hotmail.com + the phone's vtext address).
 
 script:
   # Nobody came: offer to take a message, turn it into text, send it to Doug
@@ -174,7 +175,7 @@ script:
             data:
               title: "Message from {{ visitor }} at the front door ({{ when }})"
               message: "{{ message_text or '(they said yes, but nothing was heard)' }}"
-          - action: notify.gdoor_notify               # email + text (existing SMTP notifier)
+          - action: notify.front_door_notify          # email + text (SMTP notifier)
             continue_on_error: true
             data:
               title: "Front door message from {{ visitor }} ({{ when }})"
