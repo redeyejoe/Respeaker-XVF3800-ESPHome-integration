@@ -637,10 +637,11 @@ binary_sensor:
           - switch.toggle: mic_mute
 
 # ---------------------------------------------------------------------------
-# LEDs: the three APA102s on the HAT and the 12-LED NeoPixel ring
-#   amber breathing = starting / not connected, dim blue = ready,
-#   blue = listening, cyan spinning = thinking, green = replying,
-#   red = error, dim red = muted, orange flash = doorbell pressed
+# LEDs: the three APA102s on the HAT and the 12-LED NeoPixel ring (camera ring)
+#   HAT: off = ready, blue = listening, cyan = thinking, green = replying,
+#        red = error, dim red = muted, amber breathing = starting / not connected
+#   Ring: dark unless a conversation is running (same colours, animated);
+#         Home Assistant drives it for the Dazzle and the night light
 # ---------------------------------------------------------------------------
 
 spi:
@@ -852,10 +853,19 @@ script:
       phase: string
     then:
       - lambda: |-
-          // Same colours on both; the ring gets its own animations.
+          // The camera ring is dark unless a conversation is running: Home Assistant
+          // uses it for the Dazzle and as the night light. The HAT LEDs are off when
+          // idle and only show listening / thinking / replying / muted / error / offline.
+          const bool active = phase == "listening" || phase == "thinking" || phase == "replying";
           for (int ring = 0; ring < 2; ring++) {
+            if ((ring && !active) || (!ring && phase == "idle")) {
+              auto off = ring ? id(ring_leds).turn_off() : id(hat_leds).turn_off();
+              off.perform();
+              continue;
+            }
             auto call = ring ? id(ring_leds).turn_on() : id(hat_leds).turn_on();
             call.set_effect("None");
+            if (ring) call.set_white(0.0);   // RGBW ring: colour only, white chip off
             if (phase == "idle")           { call.set_rgb(0.0, 0.2, 1.0); call.set_brightness(0.08); }
             else if (phase == "listening") { call.set_rgb(0.0, 0.3, 1.0); call.set_brightness(0.7); }
             else if (phase == "thinking")  { call.set_rgb(0.0, 0.9, 1.0); call.set_brightness(0.6); call.set_effect(ring ? "Spin" : "Fast pulse"); }

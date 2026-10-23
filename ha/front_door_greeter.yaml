@@ -192,13 +192,26 @@ automation:
         data:
           filename: "{{ snapshot }}"
       - delay: 2
-      - action: light.turn_on
-        target:
-          entity_id: "{{ ring }}"
-        data:
-          effect: None
-          rgb_color: [0, 50, 255]
-          brightness_pct: 8
+      # ring back to dark, or to the night light if it's dark out and they're still there
+      - if:
+          - condition: state
+            entity_id: sun.sun
+            state: below_horizon
+          - condition: state
+            entity_id: binary_sensor.doorbell_person_occupancy
+            state: "on"
+        then:
+          - action: light.turn_on
+            target:
+              entity_id: "{{ ring }}"
+            data:
+              effect: None
+              rgbw_color: [0, 0, 0, 255]
+              brightness_pct: 100
+        else:
+          - action: light.turn_off
+            target:
+              entity_id: "{{ ring }}"
       - action: script.greeter_say
         data:
           message: Facial scan complete. Wi-Fi identified, and logged with your profile.
@@ -224,3 +237,43 @@ automation:
       #   data:
       #     target: "+1XXXXXXXXXX"
       #     message: "Front door {{ started }}: {{ house_message }}"
+
+  # Camera ring as a porch light: full white (the RGBW ring's white chips, steady,
+  # so no flicker on the camera) when Frigate sees a person after dark. Off again a
+  # minute after they leave. Leaves the ring alone while the greeter is running.
+  - id: front_door_night_light
+    alias: Front door night light
+    mode: restart
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.doorbell_person_occupancy   # Frigate: doorbell camera, person
+        to: "on"
+    conditions:
+      - condition: state
+        entity_id: sun.sun
+        state: below_horizon
+      - condition: state
+        entity_id: automation.front_door_greeter
+        attribute: current
+        state: 0
+    actions:
+      - action: light.turn_on
+        target:
+          entity_id: light.voice_box_ring
+        data:
+          effect: None
+          rgbw_color: [0, 0, 0, 255]
+          brightness_pct: 100
+      - wait_for_trigger:
+          - trigger: state
+            entity_id: binary_sensor.doorbell_person_occupancy
+            to: "off"
+            for: "00:01:00"
+        timeout: "00:15:00"
+      - condition: state
+        entity_id: automation.front_door_greeter
+        attribute: current
+        state: 0
+      - action: light.turn_off
+        target:
+          entity_id: light.voice_box_ring
