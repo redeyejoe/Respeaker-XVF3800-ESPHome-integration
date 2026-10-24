@@ -134,6 +134,9 @@ api:
     key: !secret voice_box_api_key
 
 ota:
+  # If flash or RAM ever gets tight: dropping this password saves about 3.5 KB of
+  # flash. Swap it for `encryption: key: <the api encryption key>` (uploads then
+  # use the API key). Do that switch over USB, not OTA, in case it locks out.
   - platform: esphome
     id: ota_esphome
     password: !secret voice_box_ota_password
