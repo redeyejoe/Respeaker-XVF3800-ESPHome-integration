@@ -1,8 +1,10 @@
 # =============================================================================
-# Front door greeter: Home Assistant side          PACKAGE VERSION 1.8
+# Front door greeter: Home Assistant side          PACKAGE VERSION 1.9
 # (shows in HA as sensor.front_door_greeter_version - bump both together)
 #
 # Changes
+#   1.9  2026-10-23  transcript: one line per turn (line breaks were being trimmed off),
+#                    and a line repeated back to back is only kept once
 #   1.8  2026-10-23  no more doubled "Greeter:" lines - the box (firmware 2.0+) logs
 #                    everything it says itself
 #   1.7  2026-10-23  own email/text notifier: notify.front_door_notify
@@ -60,7 +62,7 @@ template:
       - name: Front door greeter version
         unique_id: front_door_greeter_version
         icon: mdi:tag-outline
-        state: "1.8"
+        state: "1.9"
 
   # Everything said during a visit, one line per turn ("log" attribute; a state
   # is limited to 255 characters). The box sends both sides: what it says and
@@ -77,10 +79,17 @@ template:
         state: >-
           {{ (trigger.event.data.get('text', '') | string)[:250] }}
         attributes:
+          # HA trims a template's result, so the line break goes in front of each
+          # new line (a trailing one would be cut off). A line identical to the one
+          # before it is skipped.
           log: >-
+            {%- set log = this.attributes.get('log', '') | string -%}
+            {%- set line = trigger.event.data.get('who', '?') ~ ': ' ~ (trigger.event.data.get('text', '') | string | trim) -%}
             {%- if trigger.event.event_type == 'greeter_transcript_reset' -%}
+            {%- elif log and log.split('\n')[-1] == line -%}
+              {{ log }}
             {%- else -%}
-              {{ this.attributes.get('log', '') ~ trigger.event.data.get('who', '?') ~ ': ' ~ trigger.event.data.get('text', '') ~ '\n' }}
+              {{ (log ~ '\n' ~ line) if log else line }}
             {%- endif -%}
 
 # Phones of people who visit (from your router / UniFi / nmap integration).
