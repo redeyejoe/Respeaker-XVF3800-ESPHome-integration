@@ -76,11 +76,11 @@ number:
 
 sensor:
   # Direction of the last voice relative to the robot: 0 = front, 90 = right,
-  # 180 = back, 270 = left. "Voice Direction" (hardware.yaml) is the same
-  # thing in the mic board's own frame.
+  # 180 = back, 270 = left - the mic board's reading corrected by ring_reverse,
+  # ring_led_offset and head_rotation. (The raw reading is internal, in hardware.yaml.)
   - platform: template
     id: voice_direction_robot
-    name: "Voice Direction (robot)"
+    name: "Voice Direction"
     unit_of_measurement: "°"
     icon: "mdi:robot-outline"
     accuracy_decimals: 0

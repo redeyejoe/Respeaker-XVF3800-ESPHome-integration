@@ -192,11 +192,13 @@ switch:
                 sound_file: "mute_switch_off_sound"
 
 sensor:
-  # reSpeaker Flex: direction of the last voice, in degrees (15-degree steps),
-  # for Home Assistant and for turning the robot toward the speaker.
+  # reSpeaker Flex: direction of the last voice in the mic board's own frame, in
+  # degrees (15-degree steps). Internal: it ignores how the board sits in the head.
+  # "Voice Direction" in flex-rings.yaml is the corrected one (0 = robot front).
   - platform: template
     id: voice_direction_deg
-    name: "Voice Direction"
+    name: "Voice Direction (mic board)"
+    internal: true
     unit_of_measurement: "°"
     icon: "mdi:compass-outline"
     accuracy_decimals: 0
