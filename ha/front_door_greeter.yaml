@@ -1,8 +1,10 @@
 # =============================================================================
-# Front door greeter: Home Assistant side          PACKAGE VERSION 1.9
+# Front door greeter: Home Assistant side          PACKAGE VERSION 2.0
 # (shows in HA as sensor.front_door_greeter_version - bump both together)
 #
 # Changes
+#   2.0  2026-10-23  house announcement uses Piper on the Gimp PC (tts.piper_2),
+#                    not the Pi 4 Piper app (tts.piper)
 #   1.9  2026-10-23  transcript: one line per turn (line breaks were being trimmed off),
 #                    and a line repeated back to back is only kept once
 #   1.8  2026-10-23  no more doubled "Greeter:" lines - the box (firmware 2.0+) logs
@@ -62,7 +64,7 @@ template:
       - name: Front door greeter version
         unique_id: front_door_greeter_version
         icon: mdi:tag-outline
-        state: "1.9"
+        state: "2.0"
 
   # Everything said during a visit, one line per turn ("log" attribute; a state
   # is limited to 255 characters). The box sends both sides: what it says and
@@ -224,7 +226,7 @@ automation:
       ring: light.voice_box_ring
       camera: camera.doorbell_2                      # the Pi doorbell camera (Frigate)
       house_speakers: media_player.home_audio_5      # your Google speaker group
-      house_tts: tts.piper                           # the TTS engine for the house announcement
+      house_tts: tts.piper_2                         # Piper (Gimp PC); tts.piper is the slower Pi 4 app
       face_sensor: sensor.greeter_face_name          # optional: name from face recognition
       snapshot: /config/www/front_door_visitor.jpg
       source: "{{ trigger.event.data.source | default('button') }}"
