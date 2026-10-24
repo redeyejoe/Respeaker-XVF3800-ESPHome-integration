@@ -2,8 +2,11 @@
 # ReSpeaker 2-Mic Pi HAT v1 (Keyestudio KS0314 / Seeed v1, WM8960 codec)
 # on a Seeed XIAO ESP32S3 as a stand-alone Home Assistant voice satellite.
 #
-# FIRMWARE VERSION 2.0 (esphome: project: version below - bump both together;
+# FIRMWARE VERSION 2.1 (esphome: project: version below - bump both together;
 # Home Assistant shows it on the Voice Box device page)
+#   2.1  2026-10-23  mic also deaf while a line is on its way (TTS can take 3-5 s to
+#                    start; the box listened in that gap and could take an answer
+#                    given before the question)
 #   2.0  2026-10-23  mic deaf while the box talks (+0.5 s): no more hearing its own
 #                    questions as answers; wake words ignored while talking or
 #                    listening (no more cut-off sentences); no stop word
@@ -83,7 +86,7 @@ esphome:
   name_add_mac_suffix: false
   project:
     name: redeyejoe.ReSpeaker 2-Mic XIAO ESP32S3
-    version: "2.0"
+    version: "2.1"
   on_boot:
     priority: 375
     then:
@@ -398,6 +401,8 @@ voice_assistant:
           who: Visitor
           text: !lambda return x;
   on_tts_start:
+    # The line is coming: stay deaf until it has been spoken (see the 50 ms interval)
+    - lambda: id(talk_pending) = millis() | 1;
     - script.execute:
         id: set_leds
         phase: replying
@@ -516,6 +521,10 @@ sensor:
     update_interval: never
 
 globals:
+  # millis() when a line to speak arrived and has not started playing yet (0 = none)
+  - id: talk_pending
+    type: uint32_t
+    initial_value: "0"
   - id: mic_bytes
     type: uint32_t
     initial_value: "0"
@@ -529,14 +538,19 @@ interval:
   - interval: 50ms
     then:
       - lambda: |-
+          // Deaf from the moment a line arrives (TTS can take a few seconds to
+          // start playing, and the box starts listening after 2 s regardless) until
+          // 0.5 s after it has been spoken. Gives up waiting after 15 s.
           static uint32_t last_talk = 0;
           const uint32_t now = millis();
           const bool talking = id(box_player)->state == media_player::MEDIA_PLAYER_STATE_ANNOUNCING;
-          if (talking) last_talk = now;
-          const bool deaf = talking || (last_talk != 0 && now - last_talk < 500);
+          if (talking) { last_talk = now; id(talk_pending) = 0; }
+          if (id(talk_pending) != 0 && now - id(talk_pending) > 15000) id(talk_pending) = 0;
+          const bool pending = id(talk_pending) != 0;
+          const bool deaf = talking || pending || (last_talk != 0 && now - last_talk < 500);
           if (deaf != id(hat_mic)->get_mute_state()) {
             id(hat_mic)->set_mute_state(deaf);
-            ESP_LOGD("echo", "mic %s", deaf ? "deaf while talking" : "listening again");
+            ESP_LOGD("echo", "mic %s", !deaf ? "listening again" : talking ? "deaf while talking" : "deaf, waiting to talk");
           }
   - interval: 5s
     then:
