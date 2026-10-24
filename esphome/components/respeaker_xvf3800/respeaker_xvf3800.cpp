@@ -666,7 +666,10 @@ void LEDBeamSensor::update() {
   }
   
   int led_index = this->parent_->read_led_beam_direction();
-  if (led_index >= 0 && led_index <= 11) {
+  // reSpeaker Flex: 24 positions (0-23). The old "<= 11" from the 12-LED board
+  // threw away every direction from 180 to 345 degrees, so half the head never
+  // reported and the sensor kept showing a stale value.
+  if (led_index >= 0 && led_index <= 23) {
     if (!this->has_state() || this->get_raw_state() != led_index) {
       this->publish_state(led_index);
     }
