@@ -8,7 +8,9 @@
 # firmware (respeaker_flex_i2s_c48k2ch_v1.0.4.bin) flashed with dfu-util.
 # This config never touches the XMOS firmware.
 #
-# CONFIG VERSION 1.4
+# CONFIG VERSION 1.5
+#   1.5  2026-10-23  with 1.4 the robot direction read left ear = 0, back = 90:
+#                    counting the wrong way round, so no reverse; ring_led_offset 12
 #   1.4  2026-10-23  flip was right, but the voice light was half way round:
 #                    ring_led_offset 18 (tested on the head)
 #   1.3  2026-10-23  voice light calibrated: the mics read face = 90, left ear = 180
@@ -35,10 +37,10 @@ substitutions:
   # Line the mic directions up with the 24 ring (see packages/base.yaml):
   # say the wake word from straight in front and adjust until the beam faces you.
   # 15 degrees per LED: 12 = half way round, 6 = a quarter turn.
-  # Measured 2026-10-23: "Voice Direction" read face = 90, left ear = 180.
-  # Reverse confirmed on the head; offset 6 lit the back, so 18.
-  ring_led_offset: "18"
-  ring_reverse: "true"
+  # Worked out 2026-10-23 from "Voice Direction (robot)" with 1.4 (offset 18,
+  # reverse on): left ear 0, back 90. Same answer with head_rotation 0 or 180.
+  ring_led_offset: "12"
+  ring_reverse: "false"
 
 packages:
   respeaker:
