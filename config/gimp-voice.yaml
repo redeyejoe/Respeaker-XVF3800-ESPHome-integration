@@ -8,7 +8,10 @@
 # firmware (respeaker_flex_i2s_c48k2ch_v1.0.4.bin) flashed with dfu-util.
 # This config never touches the XMOS firmware.
 #
-# CONFIG VERSION 1.1
+# CONFIG VERSION 1.2
+#   1.2  2026-10-23  ring_led_offset back to 0 until measured: the "wrong side" was
+#                    mostly a bug that dropped every voice direction from 180 to 345
+#                    degrees (fixed in the component, commit da2b07c)
 #   1.1  2026-10-23  cap turned round on the head: head_rotation 180, and the voice
 #                    light moved half way round the 24 ring (ring_led_offset 12) -
 #                    it lit the side opposite the voice
@@ -27,7 +30,7 @@ substitutions:
   # Line the mic directions up with the 24 ring (see packages/base.yaml):
   # say the wake word from straight in front and adjust until the beam faces you.
   # 15 degrees per LED: 12 = half way round, 6 = a quarter turn clockwise.
-  ring_led_offset: "12"
+  ring_led_offset: "0"
   ring_reverse: "false"
 
 packages:
