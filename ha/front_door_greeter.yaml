@@ -1,8 +1,10 @@
 # =============================================================================
-# Front door greeter: Home Assistant side          PACKAGE VERSION 1.7
+# Front door greeter: Home Assistant side          PACKAGE VERSION 1.8
 # (shows in HA as sensor.front_door_greeter_version - bump both together)
 #
 # Changes
+#   1.8  2026-10-23  no more doubled "Greeter:" lines - the box (firmware 2.0+) logs
+#                    everything it says itself
 #   1.7  2026-10-23  own email/text notifier: notify.front_door_notify
 #   1.6  2026-10-23  messages also go out through Doug's existing notify.gdoor_notify
 #                    (email to Hotmail + text via the Verizon email gateway)
@@ -58,10 +60,11 @@ template:
       - name: Front door greeter version
         unique_id: front_door_greeter_version
         icon: mdi:tag-outline
-        state: "1.7"
+        state: "1.8"
 
   # Everything said during a visit, one line per turn ("log" attribute; a state
-  # is limited to 255 characters). The box sends what the visitor says.
+  # is limited to 255 characters). The box sends both sides: what it says and
+  # what it heard.
   - triggers:
       - trigger: event
         event_type: esphome.greeter_transcript
@@ -126,10 +129,6 @@ script:
             {%- set v = states('input_text.front_door_visitor') -%}
             {{ 'someone' if v in ['unknown', 'unavailable', ''] else v }}
           when: "{{ now().strftime('%-I:%M %p') }}"
-      - event: esphome.greeter_transcript
-        event_data:
-          who: Greeter
-          text: It looks like no one is available right now. Would you like to leave a message?
       - action: assist_satellite.ask_question
         continue_on_error: true
         data:
@@ -150,10 +149,6 @@ script:
       - delay: 1
       - if: "{{ offer is defined and offer and offer.id == 'yes' }}"
         then:
-          - event: esphome.greeter_transcript
-            event_data:
-              who: Greeter
-              text: Okay, please leave your message now. I'm listening.
           - action: assist_satellite.ask_question
             continue_on_error: true
             data:
@@ -191,7 +186,7 @@ script:
             data:
               message: Okay. Have a nice day.
 
-  # One line said by the greeter box, also written to the transcript
+  # One line said by the greeter box (the box writes it to the transcript)
   greeter_say:
     alias: Greeter say
     mode: queued
@@ -206,10 +201,6 @@ script:
         data:
           message: "{{ message }}"
           preannounce: false
-      - event: esphome.greeter_transcript
-        event_data:
-          who: Greeter
-          text: "{{ message }}"
 
 automation:
   - id: front_door_greeter
@@ -253,10 +244,6 @@ automation:
               message: Fingerprint scan complete.
 
       # --- what do they want, and who are they ---
-      - event: esphome.greeter_transcript
-        event_data:
-          who: Greeter
-          text: Hello, how can I help you?
       - action: assist_satellite.ask_question
         continue_on_error: true
         data:
@@ -264,10 +251,6 @@ automation:
           question: Hello, how can I help you?
           preannounce: false
         response_variable: help_answer
-      - event: esphome.greeter_transcript
-        event_data:
-          who: Greeter
-          text: And who should I tell them is here?
       - action: assist_satellite.ask_question
         continue_on_error: true
         data:
