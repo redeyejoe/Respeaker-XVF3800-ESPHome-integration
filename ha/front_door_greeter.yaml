@@ -1,8 +1,9 @@
 # =============================================================================
-# Front door greeter: Home Assistant side          PACKAGE VERSION 2.1
+# Front door greeter: Home Assistant side          PACKAGE VERSION 2.2
 # (shows in HA as sensor.front_door_greeter_version - bump both together)
 #
 # Changes
+#   2.2  2026-10-27  scan line: "...Your phone's MAC ID identified, and logged with your profile."
 #   2.1  2026-10-27  Frigate face recognition -> sensor.greeter_face_name (greeter
 #                    uses a face seen in the last 3 minutes); "Front porch
 #                    announcement": someone on the porch for 5 s is announced on the
@@ -40,7 +41,7 @@
 #      Wi-Fi, or what they said.
 #   6. Rainbow "Dazzle" on the camera ring for a few seconds while HA takes a
 #      snapshot (everyone looks at the lights = looks at the lens).
-#   7. "Facial scan complete. Wi-Fi identified, and logged with your profile."
+#   7. "Facial scan complete. Your phone's MAC ID identified, and logged with your profile."
 #      "I have notified the homeowners. If they are available, they will be with you shortly."
 #   8. Your phone gets the summary (the snapshot is saved to
 #      /config/www/front_door_visitor.jpg), and it goes in the logbook.
@@ -69,7 +70,7 @@ template:
       - name: Front door greeter version
         unique_id: front_door_greeter_version
         icon: mdi:tag-outline
-        state: "2.1"
+        state: "2.2"
 
   # Everything said during a visit, one line per turn ("log" attribute; a state
   # is limited to 255 characters). The box sends both sides: what it says and
@@ -382,7 +383,7 @@ automation:
       - action: script.greeter_say
         continue_on_error: true
         data:
-          message: Facial scan complete. Wi-Fi identified, and logged with your profile.
+          message: Facial scan complete. Your phone's MAC ID identified, and logged with your profile.
       - delay: 1
       - action: script.greeter_say
         continue_on_error: true
