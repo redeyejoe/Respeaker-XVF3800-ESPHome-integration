@@ -1,8 +1,13 @@
 # =============================================================================
-# Front door greeter: Home Assistant side          PACKAGE VERSION 2.0
+# Front door greeter: Home Assistant side          PACKAGE VERSION 2.1
 # (shows in HA as sensor.front_door_greeter_version - bump both together)
 #
 # Changes
+#   2.1  2026-10-27  Frigate face recognition -> sensor.greeter_face_name (greeter
+#                    uses a face seen in the last 3 minutes); "Front porch
+#                    announcement": someone on the porch for 5 s is announced on the
+#                    house speakers (by name when Frigate knows the face), at most
+#                    every 5 minutes, switchable with input_boolean.porch_announcements
 #   2.0  2026-10-23  house announcement uses Piper on the Gimp PC (tts.piper_2),
 #                    not the Pi 4 Piper app (tts.piper)
 #   1.9  2026-10-23  transcript: one line per turn (line breaks were being trimmed off),
@@ -64,7 +69,7 @@ template:
       - name: Front door greeter version
         unique_id: front_door_greeter_version
         icon: mdi:tag-outline
-        state: "2.0"
+        state: "2.1"
 
   # Everything said during a visit, one line per turn ("log" attribute; a state
   # is limited to 255 characters). The box sends both sides: what it says and
@@ -94,6 +99,30 @@ template:
               {{ (log ~ '\n' ~ line) if log else line }}
             {%- endif -%}
 
+# Face recognition (Frigate 0.16+, Settings > Enrichments > Face recognition, faces
+# trained in Frigate's Face Library). Frigate posts every attempt on MQTT; this
+# keeps the last confident name from the doorbell camera. "seen" changes on every
+# match, so the greeter can tell a fresh face from an old one.
+  - triggers:
+      - trigger: mqtt
+        topic: frigate/tracked_object_update
+        value_template: "{{ value_json.type }}"
+        payload: face
+    conditions:
+      - condition: template
+        value_template: >-
+          {{ trigger.payload_json.camera == 'doorbell'
+             and trigger.payload_json.name not in [none, '', 'unknown']
+             and (trigger.payload_json.score | float(0)) >= 0.85 }}
+    sensor:
+      - name: Greeter face name
+        unique_id: greeter_face_name
+        icon: mdi:face-recognition
+        state: "{{ trigger.payload_json.name | replace('_', ' ') | title }}"
+        attributes:
+          score: "{{ trigger.payload_json.score }}"
+          seen: "{{ now().isoformat() }}"
+
 # Phones of people who visit (from your router / UniFi / nmap integration).
 # A phone in this group that joined the Wi-Fi in the last 10 minutes counts as
 # "Wi-Fi identified". Add your device_tracker entities, then reload groups.
@@ -115,6 +144,10 @@ input_boolean:
   front_door_answered:
     name: Front door answered
     icon: mdi:door-open
+  porch_announcements:
+    name: Porch announcements
+    icon: mdi:bullhorn-outline
+    initial: true
 
 input_text:
   front_door_visitor:
@@ -288,7 +321,8 @@ automation:
             {%- endif -%}
           face_name: >-
             {%- set f = states(face_sensor) -%}
-            {{ '' if f in ['unknown', 'unavailable', 'none', 'None', ''] else f }}
+            {%- set fresh = states[face_sensor] is not none and (now() - states[face_sensor].last_updated).total_seconds() < 180 -%}
+            {{ '' if (not fresh) or f in ['unknown', 'unavailable', 'none', 'None', ''] else f }}
           wifi_names: >-
             {%- set ns = namespace(n=[]) -%}
             {%- for e in expand('group.greeter_known_phones') if e.state == 'home' and (now() - e.last_changed).total_seconds() < 600 -%}
@@ -441,3 +475,46 @@ automation:
       - action: light.turn_off
         target:
           entity_id: light.voice_box_ring
+
+  # Someone stands on the porch (Frigate zone door_area) for 5 seconds without
+  # ringing: say so on the house speakers - by name when Frigate knows the face.
+  # Quiet while the greeter is busy, at most once every 5 minutes, and off with
+  # "Porch announcements" (handy while you're out there yourself).
+  - id: front_porch_announcement
+    alias: Front porch announcement
+    mode: single
+    max_exceeded: silent
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.door_area_person_occupancy   # Frigate: doorbell camera, door_area zone
+        to: "on"
+        for: "00:00:05"
+    conditions:
+      - condition: state
+        entity_id: input_boolean.porch_announcements
+        state: "on"
+      - condition: state
+        entity_id: automation.front_door_greeter
+        attribute: current
+        state: 0
+      - condition: state
+        entity_id: input_boolean.front_door_waiting
+        state: "off"
+      - condition: template
+        value_template: >-
+          {{ this.attributes.last_triggered is none
+             or (now() - this.attributes.last_triggered).total_seconds() > 300 }}
+    variables:
+      face: >-
+        {%- set f = states('sensor.greeter_face_name') -%}
+        {%- set fresh = states.sensor.greeter_face_name is not none and (now() - states.sensor.greeter_face_name.last_updated).total_seconds() < 60 -%}
+        {{ f if fresh and f not in ['unknown', 'unavailable', ''] else '' }}
+    actions:
+      - action: tts.speak
+        continue_on_error: true
+        target:
+          entity_id: tts.piper_2                      # Piper (Gimp PC)
+        data:
+          media_player_entity_id: media_player.home_audio_5
+          message: >-
+            {{ face ~ ' is on the front porch.' if face else 'Someone is standing on the front porch.' }}
