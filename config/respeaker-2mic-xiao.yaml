@@ -2,8 +2,10 @@
 # ReSpeaker 2-Mic Pi HAT v1 (Keyestudio KS0314 / Seeed v1, WM8960 codec)
 # on a Seeed XIAO ESP32S3 as a stand-alone Home Assistant voice satellite.
 #
-# FIRMWARE VERSION 2.1 (esphome: project: version below - bump both together;
+# FIRMWARE VERSION 2.2 (esphome: project: version below - bump both together;
 # Home Assistant shows it on the Voice Box device page)
+#   2.2  2026-10-27  doorbell read as a voltage, so a lighted doorbell button works
+#                    (its lamp leak held the input "on"); Doorbell voltage sensor
 #   2.1  2026-10-23  mic also deaf while a line is on its way (TTS can take 3-5 s to
 #                    start; the box listened in that gap and could take an answer
 #                    given before the question)
@@ -44,7 +46,7 @@
 #   Speaker (HAT speaker connector): the two outputs are bridge-tied - never let
 #   them touch each other or ground, and connect the speaker with the power off.
 #   A short there can take out the WM8960 entirely.
-#   Doorbell button (optional, to GND) -> D10 (GPIO9)
+#   Doorbell button (optional, to GND) -> D10 (GPIO9)   a lighted button is fine
 #
 # Adafruit NeoPixel Ring 12 (WS2812):
 #   DIN -> D2 (GPIO3) through a 330-470 ohm resistor
@@ -86,10 +88,12 @@ esphome:
   name_add_mac_suffix: false
   project:
     name: redeyejoe.ReSpeaker 2-Mic XIAO ESP32S3
-    version: "2.1"
+    version: "2.2"
   on_boot:
     priority: 375
     then:
+      # Doorbell line: the ADC setup leaves D10 with no pull-up; put the internal one back
+      - lambda: gpio_pullup_en(GPIO_NUM_9);
       - script.execute:
           id: set_leds
           phase: offline
@@ -489,6 +493,30 @@ switch:
     restore_mode: RESTORE_DEFAULT_ON
 
 sensor:
+  # Doorbell line (D10), read 20 times a second for the Doorbell binary sensor.
+  # Internal pull-up on (switched on in on_boot: setting up the ADC turns it off).
+  - platform: adc
+    id: doorbell_adc
+    pin: GPIO9
+    attenuation: 12db
+    update_interval: 50ms
+    internal: true
+  # The same voltage for Home Assistant (diagnostic): resting level with the lit
+  # button up, near 0 V when pressed.
+  - platform: template
+    id: doorbell_voltage
+    name: Doorbell voltage
+    icon: mdi:flash-triangle-outline
+    entity_category: diagnostic
+    unit_of_measurement: V
+    device_class: voltage
+    state_class: measurement
+    accuracy_decimals: 2
+    update_interval: 1s
+    lambda: return id(doorbell_adc).state;
+    filters:
+      - delta: 0.02
+
   # Red light the MAX30102 saw at the end of the last finger scan (0-262143).
   # Much higher with a finger on the sensor; handy for telling a real finger
   # from a tap on the pad.
@@ -564,19 +592,29 @@ interval:
           id(mic_level).publish_state(peak);
 
 binary_sensor:
-  # Optional doorbell push button between D10 and GND. With Home Assistant
-  # connected it starts the greeter (ha/front_door_greeter.yaml); without it,
-  # it just flashes the ring.
-  - platform: gpio
+  # Doorbell push button between D10 and GND. A lighted doorbell button leaks
+  # through its lamp, which pulls a digital input low all the time, so D10 is
+  # read as a voltage instead (doorbell_adc below): the button counts as pressed
+  # when the voltage drops below half of its usual resting level. With Home
+  # Assistant connected it starts the greeter (ha/front_door_greeter.yaml);
+  # without it, it just flashes the ring.
+  - platform: template
     id: doorbell_button
     name: Doorbell
     icon: mdi:doorbell
-    pin:
-      number: GPIO9
-      mode:
-        input: true
-        pullup: true
-      inverted: true
+    lambda: |-
+      // Resting level is learned while the button is up, so the lamp's leak
+      // (whatever it is) doesn't need measuring. Pressed = below half of it.
+      static float rest = -1.0f;
+      static bool pressed = false;
+      const float v = id(doorbell_adc).state;
+      if (std::isnan(v)) return {};
+      if (rest < 0.0f) rest = v;
+      if (!pressed && v > rest * 0.5f) rest = rest * 0.95f + v * 0.05f;
+      if (rest < 0.10f) return false;            // no resting voltage to compare with
+      if (!pressed && v < rest * 0.40f) pressed = true;
+      else if (pressed && v > rest * 0.60f) pressed = false;
+      return pressed;
     filters:
       - delayed_on: 30ms
       - delayed_off: 100ms
