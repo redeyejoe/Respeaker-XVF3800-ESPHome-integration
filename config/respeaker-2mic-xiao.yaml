@@ -2,8 +2,9 @@
 # ReSpeaker 2-Mic Pi HAT v1 (Keyestudio KS0314 / Seeed v1, WM8960 codec)
 # on a Seeed XIAO ESP32S3 as a stand-alone Home Assistant voice satellite.
 #
-# FIRMWARE VERSION 2.2 (esphome: project: version below - bump both together;
+# FIRMWARE VERSION 2.3 (esphome: project: version below - bump both together;
 # Home Assistant shows it on the Voice Box device page)
+#   2.3  2026-10-31  Halloween ring effect (orange/green spinning); Restart button
 #   2.2  2026-10-27  doorbell read as a voltage, so a lighted doorbell button works
 #                    (its lamp leak held the input "on"); Doorbell voltage sensor
 #   2.1  2026-10-23  mic also deaf while a line is on its way (TTS can take 3-5 s to
@@ -88,7 +89,7 @@ esphome:
   name_add_mac_suffix: false
   project:
     name: redeyejoe.ReSpeaker 2-Mic XIAO ESP32S3
-    version: "2.2"
+    version: "2.3"
   on_boot:
     priority: 375
     then:
@@ -829,6 +830,16 @@ light:
             if (random_uint32() % 3 == 0)
               it[random_uint32() % n] = Color(255, 255, 255, 255);
             hue += 9;
+      # Halloween: orange and green in pairs, spinning round the ring
+      - addressable_lambda:
+          name: Halloween
+          update_interval: 120ms
+          lambda: |-
+            static uint8_t pos = 0;
+            const int n = it.size();
+            for (int i = 0; i < n; i++)
+              it[i] = (((i + pos) / 2) % 2) ? Color(0, 255, 0, 0) : Color(255, 70, 0, 0);
+            pos = (pos + 1) % n;
       - strobe:
           name: Flash
           colors:
@@ -840,6 +851,12 @@ light:
               duration: 150ms
             - state: false
               duration: 150ms
+
+button:
+  - platform: restart
+    id: restart_button
+    name: Restart
+    entity_category: config
 
 script:
   # Tells Home Assistant someone is at the door. ha/front_door_greeter.yaml

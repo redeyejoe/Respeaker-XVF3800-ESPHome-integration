@@ -1,8 +1,10 @@
 # =============================================================================
-# Front door greeter: Home Assistant side          PACKAGE VERSION 2.2
+# Front door greeter: Home Assistant side          PACKAGE VERSION 2.3
 # (shows in HA as sensor.front_door_greeter_version - bump both together)
 #
 # Changes
+#   2.3  2026-10-31  porch light is the orange/green "Halloween" effect on Oct 31
+#                    (script.greeter_porch_light; needs Voice Box firmware 2.3)
 #   2.2  2026-10-27  scan line: "...Your phone's MAC ID identified, and logged with your profile."
 #   2.1  2026-10-27  Frigate face recognition -> sensor.greeter_face_name (greeter
 #                    uses a face seen in the last 3 minutes); "Front porch
@@ -70,7 +72,7 @@ template:
       - name: Front door greeter version
         unique_id: front_door_greeter_version
         icon: mdi:tag-outline
-        state: "2.2"
+        state: "2.3"
 
   # Everything said during a visit, one line per turn ("log" attribute; a state
   # is limited to 255 characters). The box sends both sides: what it says and
@@ -231,6 +233,29 @@ script:
             data:
               message: Okay. Have a nice day.
 
+  # Porch light on the camera ring: steady white, or on Halloween (Oct 31) the
+  # orange/green spinning "Halloween" effect (Voice Box firmware 2.3+).
+  greeter_porch_light:
+    alias: Greeter porch light
+    mode: restart
+    sequence:
+      - if: "{{ now().month == 10 and now().day == 31 }}"
+        then:
+          - action: light.turn_on
+            target:
+              entity_id: light.voice_box_ring
+            data:
+              effect: Halloween
+              brightness_pct: 100
+        else:
+          - action: light.turn_on
+            target:
+              entity_id: light.voice_box_ring
+            data:
+              effect: None
+              rgbw_color: [0, 0, 0, 255]
+              brightness_pct: 100
+
   # One line said by the greeter box (the box writes it to the transcript)
   greeter_say:
     alias: Greeter say
@@ -369,13 +394,7 @@ automation:
             entity_id: binary_sensor.doorbell_person_occupancy
             state: "on"
         then:
-          - action: light.turn_on
-            target:
-              entity_id: "{{ ring }}"
-            data:
-              effect: None
-              rgbw_color: [0, 0, 0, 255]
-              brightness_pct: 100
+          - action: script.greeter_porch_light
         else:
           - action: light.turn_off
             target:
@@ -456,13 +475,7 @@ automation:
         attribute: current
         state: 0
     actions:
-      - action: light.turn_on
-        target:
-          entity_id: light.voice_box_ring
-        data:
-          effect: None
-          rgbw_color: [0, 0, 0, 255]
-          brightness_pct: 100
+      - action: script.greeter_porch_light
       - wait_for_trigger:
           - trigger: state
             entity_id: binary_sensor.doorbell_person_occupancy
